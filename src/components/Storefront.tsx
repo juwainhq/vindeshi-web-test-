@@ -32,9 +32,10 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
 
   const filteredProducts = useMemo(
     () =>
-      activeCategory === 'All'
+      (activeCategory === 'All'
         ? products.filter((p) => p.is_visible)
-        : products.filter((p) => p.category === activeCategory && p.is_visible),
+        : products.filter((p) => p.category === activeCategory && p.is_visible)
+      ).slice(0, 4),
     [products, activeCategory]
   );
 

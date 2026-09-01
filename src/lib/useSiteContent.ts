@@ -121,17 +121,6 @@ const fallbackProducts: Product[] = [
     sort_order: 7,
     is_visible: true,
   },
-  {
-    id: '8',
-    name: 'The Key Fob',
-    category: 'Men',
-    price: '45',
-    color: 'Tan',
-    badge: null,
-    image_url: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&q=80',
-    sort_order: 8,
-    is_visible: true,
-  },
 ];
 
 const fallbackCollections: Collection[] = [

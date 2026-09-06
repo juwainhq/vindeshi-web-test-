@@ -28,7 +28,7 @@ export function Contact() {
         {/* Section Label */}
         <div className="reveal mb-20 flex items-center gap-4">
           <span className="h-px w-12 bg-[#b86b4c]" />
-          <span className="text-[10px] uppercase tracking-[0.28em] text-[#8a8a8a]">
+          <span className="text-[10px] uppercase tracking-[0.28em] text-[#8C8A85]">
             Contact
           </span>
         </div>
@@ -36,12 +36,12 @@ export function Contact() {
         <div className="grid gap-16 lg:grid-cols-2 lg:gap-24">
           {/* Left — Heading */}
           <div>
-            <h2 className="reveal font-serif text-5xl font-medium leading-[1.05] tracking-tight text-[#1a1a1a] lg:text-7xl">
+            <h2 className="reveal font-serif text-5xl font-medium leading-[1.05] tracking-tight text-[#1C1C1A] lg:text-7xl">
               Let's work<br />
               <em className="not-italic">together.</em>
             </h2>
 
-            <p className="reveal mt-8 max-w-sm text-base leading-7 text-[#8a8a8a]">
+            <p className="reveal mt-8 max-w-sm text-base leading-7 text-[#8C8A85]">
               I'm currently open to select freelance projects and collaborations.
               If you have something in mind, I'd love to hear from you.
             </p>
@@ -51,12 +51,12 @@ export function Contact() {
           <div className="reveal flex flex-col justify-end gap-10">
             {/* Email */}
             <div>
-              <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+              <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                 Email
               </p>
               <a
                 href="mailto:hello@jashrabintehaque.com"
-                className="font-serif text-2xl font-medium text-[#1a1a1a] transition-opacity hover:opacity-60 lg:text-3xl"
+                className="font-serif text-2xl font-medium text-[#1C1C1A] transition-opacity hover:opacity-60 lg:text-3xl"
               >
                 hello@jashrabintehaque.com
               </a>
@@ -64,7 +64,7 @@ export function Contact() {
 
             {/* Social */}
             <div>
-              <p className="mb-4 text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+              <p className="mb-4 text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                 Find me on
               </p>
               <div className="flex flex-col gap-3">
@@ -72,7 +72,7 @@ export function Contact() {
                   href="https://instagram.com/jashrabintehaque"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-3 text-sm text-[#1a1a1a] transition-opacity hover:opacity-60"
+                  className="inline-flex items-center gap-3 text-sm text-[#1C1C1A] transition-opacity hover:opacity-60"
                 >
                   <Instagram size={16} strokeWidth={1.5} />
                   @jashrabintehaque
@@ -81,7 +81,7 @@ export function Contact() {
                   href="https://dribbble.com/jashrabintehaque"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-3 text-sm text-[#1a1a1a] transition-opacity hover:opacity-60"
+                  className="inline-flex items-center gap-3 text-sm text-[#1C1C1A] transition-opacity hover:opacity-60"
                 >
                   <Dribbble size={16} strokeWidth={1.5} />
                   Dribbble
@@ -92,7 +92,7 @@ export function Contact() {
             {/* Availability */}
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-[#b86b4c]" />
-              <span className="text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                 Currently available for new projects
               </span>
             </div>

@@ -29,8 +29,8 @@ export function ProjectDetail() {
 
   if (!project) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f8f6f2]">
-        <p className="text-lg text-[#8a8a8a]">Project not found.</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#F9F8F6]">
+        <p className="text-lg text-[#8C8A85]">Project not found.</p>
       </div>
     );
   }
@@ -42,7 +42,7 @@ export function ProjectDetail() {
         <div className="reveal mb-12 flex items-center justify-between">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-opacity hover:opacity-60"
+            className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-opacity hover:opacity-60"
           >
             <ArrowLeft size={14} /> Back to work
           </Link>
@@ -50,7 +50,7 @@ export function ProjectDetail() {
             {prev && (
               <Link
                 to={`/work/${prev.slug}`}
-                className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-opacity hover:opacity-60"
+                className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-opacity hover:opacity-60"
               >
                 Previous <ArrowRight size={14} className="rotate-180" />
               </Link>
@@ -58,7 +58,7 @@ export function ProjectDetail() {
             {next && (
               <Link
                 to={`/work/${next.slug}`}
-                className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-opacity hover:opacity-60"
+                className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-opacity hover:opacity-60"
               >
                 Next <ArrowRight size={14} />
               </Link>
@@ -69,7 +69,7 @@ export function ProjectDetail() {
         {/* Hero */}
         <div className="reveal mb-20 grid gap-8 lg:grid-cols-2 lg:gap-16">
           <div>
-            <h1 className="font-serif text-5xl font-medium leading-[1.05] tracking-tight text-[#1a1a1a] lg:text-7xl">
+            <h1 className="font-serif text-5xl font-medium leading-[1.05] tracking-tight text-[#1C1C1A] lg:text-7xl">
               {project.title}
             </h1>
 
@@ -77,19 +77,19 @@ export function ProjectDetail() {
               <span className="text-[10px] uppercase tracking-[0.18em] text-[#b86b4c]">
                 {project.category}
               </span>
-              <span className="h-px w-6 bg-[#e5e3df]" />
-              <span className="text-[10px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+              <span className="h-px w-6 bg-[#E6E2DA]" />
+              <span className="text-[10px] uppercase tracking-[0.18em] text-[#8C8A85]">
                 {project.year}
               </span>
             </div>
 
-            <p className="mt-8 text-base leading-8 text-[#8a8a8a] lg:text-lg">
+            <p className="mt-8 text-base leading-8 text-[#8C8A85] lg:text-lg">
               {project.description}
             </p>
           </div>
 
           <div className="relative">
-            <div className="aspect-[4/3] overflow-hidden bg-[#e5e3df]">
+            <div className="aspect-[4/3] overflow-hidden bg-[#E6E2DA]">
               <img
                 src={project.heroImage}
                 alt={project.title}
@@ -100,9 +100,9 @@ export function ProjectDetail() {
         </div>
 
         {/* Project Info Grid */}
-        <div className="reveal grid gap-12 border-t border-[#e5e3df] pt-20 lg:grid-cols-3">
+        <div className="reveal grid gap-12 border-t border-[#E6E2DA] pt-20 lg:grid-cols-3">
           <div className="lg:col-span-1">
-            <h3 className="font-serif text-xl font-medium tracking-tight text-[#1a1a1a]">
+            <h3 className="font-serif text-xl font-medium tracking-tight text-[#1C1C1A]">
               Project Info
             </h3>
           </div>
@@ -111,34 +111,34 @@ export function ProjectDetail() {
             <div className="grid gap-8 lg:grid-cols-2">
               {project.info.client && (
                 <div>
-                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                     Client
                   </p>
-                  <p className="text-sm text-[#1a1a1a]">{project.info.client}</p>
+                  <p className="text-sm text-[#1C1C1A]">{project.info.client}</p>
                 </div>
               )}
               {project.info.role && (
                 <div>
-                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                     Role
                   </p>
-                  <p className="text-sm text-[#1a1a1a]">{project.info.role}</p>
+                  <p className="text-sm text-[#1C1C1A]">{project.info.role}</p>
                 </div>
               )}
               {project.info.timeline && (
                 <div>
-                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                     Timeline
                   </p>
-                  <p className="text-sm text-[#1a1a1a]">{project.info.timeline}</p>
+                  <p className="text-sm text-[#1C1C1A]">{project.info.timeline}</p>
                 </div>
               )}
               {project.info.deliverables && (
                 <div>
-                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+                  <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
                     Deliverables
                   </p>
-                  <p className="text-sm text-[#1a1a1a]">{project.info.deliverables}</p>
+                  <p className="text-sm text-[#1C1C1A]">{project.info.deliverables}</p>
                 </div>
               )}
             </div>
@@ -148,24 +148,24 @@ export function ProjectDetail() {
         {/* Process */}
         <div className="reveal mt-20 grid gap-12 lg:grid-cols-3">
           <div className="lg:col-span-1">
-            <h3 className="font-serif text-xl font-medium tracking-tight text-[#1a1a1a]">
+            <h3 className="font-serif text-xl font-medium tracking-tight text-[#1C1C1A]">
               Process
             </h3>
           </div>
           <div className="lg:col-span-2">
-            <p className="text-base leading-8 text-[#8a8a8a]">{project.process}</p>
+            <p className="text-base leading-8 text-[#8C8A85]">{project.process}</p>
           </div>
         </div>
 
         {/* Result */}
         <div className="reveal mt-20 grid gap-12 lg:grid-cols-3">
           <div className="lg:col-span-1">
-            <h3 className="font-serif text-xl font-medium tracking-tight text-[#1a1a1a]">
+            <h3 className="font-serif text-xl font-medium tracking-tight text-[#1C1C1A]">
               Result
             </h3>
           </div>
           <div className="lg:col-span-2">
-            <p className="text-base leading-8 text-[#8a8a8a]">{project.result}</p>
+            <p className="text-base leading-8 text-[#8C8A85]">{project.result}</p>
           </div>
         </div>
 
@@ -173,7 +173,7 @@ export function ProjectDetail() {
         {project.images.length > 1 && (
           <div className="reveal mt-32 grid gap-8 lg:grid-cols-2">
             {project.images.slice(1).map((image, index) => (
-              <div key={index} className="aspect-[4/3] overflow-hidden bg-[#e5e3df]">
+              <div key={index} className="aspect-[4/3] overflow-hidden bg-[#E6E2DA]">
                 <img
                   src={image}
                   alt={`${project.title} detail ${index + 2}`}
@@ -185,10 +185,10 @@ export function ProjectDetail() {
         )}
 
         {/* Navigation */}
-        <div className="reveal mt-32 flex items-center justify-between border-t border-[#e5e3df] pt-12">
+        <div className="reveal mt-32 flex items-center justify-between border-t border-[#E6E2DA] pt-12">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-opacity hover:opacity-60"
+            className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-opacity hover:opacity-60"
           >
             <ArrowLeft size={14} /> Back to work
           </Link>
@@ -198,10 +198,10 @@ export function ProjectDetail() {
                 to={`/work/${prev.slug}`}
                 className="group flex items-center gap-3"
               >
-                <span className="text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-opacity group-hover:opacity-60">
+                <span className="text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-opacity group-hover:opacity-60">
                   Previous
                 </span>
-                <div className="h-px w-12 bg-[#e5e3df] transition-all group-hover:w-16" />
+                <div className="h-px w-12 bg-[#E6E2DA] transition-all group-hover:w-16" />
                 <ArrowRight size={14} className="rotate-180" />
               </Link>
             )}
@@ -211,8 +211,8 @@ export function ProjectDetail() {
                 className="group flex items-center gap-3"
               >
                 <ArrowRight size={14} />
-                <div className="h-px w-12 bg-[#e5e3df] transition-all group-hover:w-16" />
-                <span className="text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-opacity group-hover:opacity-60">
+                <div className="h-px w-12 bg-[#E6E2DA] transition-all group-hover:w-16" />
+                <span className="text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-opacity group-hover:opacity-60">
                   Next
                 </span>
               </Link>

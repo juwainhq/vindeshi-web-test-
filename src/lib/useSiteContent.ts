@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from './supabase';
 import type { SiteContent, SiteSettings, Product, Collection } from './types';
 
+const STORAGE_KEY = 'vindeshi-content-v1';
+
 const SETTINGS_KEYS = [
   'id', 'brand_name', 'brand_tagline', 'announcement',
   'hero_eyebrow', 'hero_title_line1', 'hero_title_line2', 'hero_subtitle',
@@ -16,129 +18,128 @@ const SETTINGS_KEYS = [
 const PRODUCT_KEYS = 'id, name, category, price, color, badge, image_url, sort_order, is_visible';
 const COLLECTION_KEYS = 'id, eyebrow, title, image_url, sort_order';
 
-// Fallback data for preview/development when Supabase is not configured
-const fallbackSettings: SiteSettings = {
+// Default starter data — your actual inventory (3 women's totes + 1 men's laptop bag)
+const defaultSettings: SiteSettings = {
   id: 1,
   brand_name: 'Vindeshi',
   brand_tagline: 'Handcrafted leather goods',
   announcement: 'Free shipping on orders over $100',
-  hero_eyebrow: 'New Collection',
+  hero_eyebrow: 'New collection',
   hero_title_line1: 'Crafted for',
   hero_title_line2: 'the journey',
-  hero_subtitle: 'Discover our latest collection of handcrafted leather bags, designed to age beautifully with every adventure.',
-  hero_image: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=800&q=80',
-  hero_caption: 'The Nomad Tote in Natural',
+  hero_subtitle: 'Discover our collection of handcrafted leather bags, designed to age beautifully with every adventure.',
+  hero_image: '/images/20260718_160025.jpg',
+  hero_caption: 'The Nomad Tote in Pink',
   shop_eyebrow: 'Shop',
-  shop_title: 'Our Collection',
+  shop_title: 'Our collection',
   collections_eyebrow: 'Collections',
   collections_title: 'Curated edits',
-  story_eyebrow: 'Our Story',
+  story_eyebrow: 'Our story',
   story_title: 'Made to',
   story_title_italic: 'last a lifetime',
   story_body1: 'Vindeshi was born from a simple belief: the things we carry should get better with age, not worse. Every bag is handcrafted in our workshop using full-grain leather that develops a rich patina over time.',
   story_body2: 'We source our materials responsibly and work with skilled artisans who share our commitment to quality. No shortcuts, no compromises — just honest goods made to accompany you for years to come.',
-  story_image: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&q=80',
+  story_image: '/images/20260718_160025.jpg',
   newsletter_eyebrow: 'Join us',
   newsletter_title: 'Get 10% off your first order',
   footer_copyright: '© 2024 Vindeshi. All rights reserved.',
 };
 
-const fallbackProducts: Product[] = [
+const defaultProducts: Product[] = [
   {
     id: '1',
-    name: 'The Nomad Tote',
+    name: 'Pink Tote',
     category: 'Women',
-    price: '285',
-    color: 'Natural',
+    price: '1,450',
+    color: 'Pink',
     badge: 'Bestseller',
-    image_url: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80',
+    image_url: '/images/20260718_160025.jpg',
     sort_order: 1,
     is_visible: true,
   },
   {
     id: '2',
-    name: 'The Weekender',
-    category: 'Travel',
-    price: '425',
-    color: 'Cognac',
+    name: 'Mauve Tote',
+    category: 'Women',
+    price: '1,450',
+    color: 'Mauve',
     badge: 'New',
-    image_url: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=600&q=80',
+    image_url: '/images/20260718_133617.jpg',
     sort_order: 2,
     is_visible: true,
   },
   {
     id: '3',
-    name: 'The Slim Brief',
-    category: 'Men',
-    price: '320',
+    name: 'Black Tote',
+    category: 'Women',
+    price: '1,450',
     color: 'Black',
     badge: null,
-    image_url: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=600&q=80',
+    image_url: '/images/20260718_133535.jpg',
     sort_order: 3,
     is_visible: true,
   },
   {
     id: '4',
-    name: 'The Crossbody',
-    category: 'Women',
-    price: '195',
-    color: 'Tan',
-    badge: null,
-    image_url: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80',
-    sort_order: 4,
-    is_visible: true,
-  },
-  {
-    id: '5',
-    name: 'The Card Holder',
+    name: 'Black Laptop Briefcase',
     category: 'Men',
-    price: '65',
-    color: 'Natural',
-    badge: null,
-    image_url: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&q=80',
-    sort_order: 5,
-    is_visible: true,
-  },
-  {
-    id: '6',
-    name: 'The Passport Cover',
-    category: 'Travel',
-    price: '85',
-    color: 'Cognac',
-    badge: null,
-    image_url: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&q=80',
-    sort_order: 6,
-    is_visible: true,
-  },
-  {
-    id: '7',
-    name: 'The Belt Bag',
-    category: 'Women',
-    price: '165',
+    price: '1,850',
     color: 'Black',
     badge: 'Popular',
-    image_url: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80',
-    sort_order: 7,
+    image_url: '/images/20260718_133505.jpg',
+    sort_order: 4,
     is_visible: true,
   },
 ];
 
-const fallbackCollections: Collection[] = [
+const defaultCollections: Collection[] = [
   {
     id: '1',
-    eyebrow: 'Everyday Essentials',
-    title: 'The Daily Edit',
-    image_url: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=800&q=80',
+    eyebrow: 'For the office',
+    title: 'Office essentials',
+    image_url: '/images/20260718_160025.jpg',
     sort_order: 1,
   },
   {
     id: '2',
-    eyebrow: 'For the Journey',
-    title: 'Travel Companions',
-    image_url: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&q=80',
+    eyebrow: 'Everyday carry',
+    title: 'Tote collection',
+    image_url: '/images/20260718_133535.jpg',
     sort_order: 2,
   },
 ];
+
+// Read/write local content (used when Supabase is not configured)
+function readLocalContent(): SiteContent {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as SiteContent;
+      if (parsed.settings && parsed.products && parsed.collections) return parsed;
+    }
+  } catch {
+    // ignore — fall through to defaults
+  }
+  const initial: SiteContent = {
+    settings: defaultSettings,
+    products: defaultProducts,
+    collections: defaultCollections,
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+  } catch {
+    // storage may be unavailable
+  }
+  return initial;
+}
+
+function writeLocalContent(content: SiteContent): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(content));
+  } catch {
+    // storage may be unavailable
+  }
+}
 
 export function useSiteContent() {
   const [content, setContent] = useState<SiteContent | null>(null);
@@ -149,13 +150,9 @@ export function useSiteContent() {
     setLoading(true);
     setError(null);
 
-    // If Supabase is not configured, use fallback data immediately
+    // Local-first mode: skip Supabase entirely
     if (!isSupabaseConfigured) {
-      setContent({
-        settings: fallbackSettings,
-        products: fallbackProducts,
-        collections: fallbackCollections,
-      });
+      setContent(readLocalContent());
       setLoading(false);
       return;
     }
@@ -185,12 +182,6 @@ export function useSiteContent() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not load site content.';
       setError(message);
-      // On error, fall back to local data so the UI still works
-      setContent({
-        settings: fallbackSettings,
-        products: fallbackProducts,
-        collections: fallbackCollections,
-      });
     } finally {
       setLoading(false);
     }
@@ -203,7 +194,28 @@ export function useSiteContent() {
   return { content, loading, error, reload: load };
 }
 
+// ── Mutators: work with both local storage and Supabase ─────────────
+async function mutateContent(updater: (current: SiteContent) => SiteContent): Promise<SiteContent> {
+  if (!isSupabaseConfigured) {
+    const current = readLocalContent();
+    const next = updater(current);
+    writeLocalContent(next);
+    return next;
+  }
+  // For Supabase, the individual functions below handle persistence.
+  // This branch is only hit if the caller uses mutateContent directly with a remote DB.
+  const current = readLocalContent();
+  const next = updater(current);
+  writeLocalContent(next);
+  return next;
+}
+
 export async function updateSettings(patch: Partial<SiteSettings>): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const current = readLocalContent();
+    writeLocalContent({ ...current, settings: { ...current.settings, ...patch } });
+    return;
+  }
   const { error } = await supabase
     .from('site_settings')
     .update({ ...patch, updated_at: new Date().toISOString() })
@@ -211,7 +223,17 @@ export async function updateSettings(patch: Partial<SiteSettings>): Promise<void
   if (error) throw error;
 }
 
+function generateId(): string {
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export async function createProduct(product: Omit<Product, 'id'>): Promise<Product> {
+  if (!isSupabaseConfigured) {
+    const created: Product = { ...product, id: generateId() };
+    const current = readLocalContent();
+    writeLocalContent({ ...current, products: [...current.products, created] });
+    return created;
+  }
   const { data, error } = await supabase
     .from('products')
     .insert(product)
@@ -223,16 +245,34 @@ export async function createProduct(product: Omit<Product, 'id'>): Promise<Produ
 }
 
 export async function updateProduct(id: string, patch: Partial<Product>): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const current = readLocalContent();
+    const products = current.products.map((p) => (p.id === id ? { ...p, ...patch } : p));
+    writeLocalContent({ ...current, products });
+    return;
+  }
   const { error } = await supabase.from('products').update(patch).eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteProduct(id: string): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const current = readLocalContent();
+    const products = current.products.filter((p) => p.id !== id);
+    writeLocalContent({ ...current, products });
+    return;
+  }
   const { error } = await supabase.from('products').delete().eq('id', id);
   if (error) throw error;
 }
 
 export async function createCollection(collection: Omit<Collection, 'id'>): Promise<Collection> {
+  if (!isSupabaseConfigured) {
+    const created: Collection = { ...collection, id: generateId() };
+    const current = readLocalContent();
+    writeLocalContent({ ...current, collections: [...current.collections, created] });
+    return created;
+  }
   const { data, error } = await supabase
     .from('collections')
     .insert(collection)
@@ -244,11 +284,36 @@ export async function createCollection(collection: Omit<Collection, 'id'>): Prom
 }
 
 export async function updateCollection(id: string, patch: Partial<Collection>): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const current = readLocalContent();
+    const collections = current.collections.map((c) => (c.id === id ? { ...c, ...patch } : c));
+    writeLocalContent({ ...current, collections });
+    return;
+  }
   const { error } = await supabase.from('collections').update(patch).eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteCollection(id: string): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const current = readLocalContent();
+    const collections = current.collections.filter((c) => c.id !== id);
+    writeLocalContent({ ...current, collections });
+    return;
+  }
   const { error } = await supabase.from('collections').delete().eq('id', id);
   if (error) throw error;
+}
+
+export async function resetContent(): Promise<void> {
+  if (!isSupabaseConfigured) {
+    const initial: SiteContent = {
+      settings: defaultSettings,
+      products: defaultProducts,
+      collections: defaultCollections,
+    };
+    writeLocalContent(initial);
+    return;
+  }
+  // For Supabase mode, this is a no-op (would need to implement per-table reset)
 }

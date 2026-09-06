@@ -31,7 +31,7 @@ export function Work() {
         <div className="reveal mb-20 flex items-end justify-between">
           <div className="flex items-center gap-4">
             <span className="h-px w-12 bg-[#b86b4c]" />
-            <span className="text-[10px] uppercase tracking-[0.28em] text-[#8a8a8a]">
+            <span className="text-[10px] uppercase tracking-[0.28em] text-[#8C8A85]">
               Selected Work
             </span>
           </div>
@@ -53,7 +53,7 @@ export function Work() {
                   index % 2 === 1 ? 'lg:order-2' : ''
                 }`}
               >
-                <div className="aspect-[4/3] overflow-hidden bg-[#e5e3df]">
+                <div className="aspect-[4/3] overflow-hidden bg-[#E6E2DA]">
                   <img
                     src={project.coverImage}
                     alt={project.title}
@@ -72,23 +72,23 @@ export function Work() {
                   <span className="text-[10px] uppercase tracking-[0.18em] text-[#b86b4c]">
                     {project.category}
                   </span>
-                  <span className="h-px w-6 bg-[#e5e3df]" />
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+                  <span className="h-px w-6 bg-[#E6E2DA]" />
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-[#8C8A85]">
                     {project.year}
                   </span>
                 </div>
 
-                <h3 className="font-serif text-4xl font-medium tracking-tight text-[#1a1a1a] lg:text-5xl">
+                <h3 className="font-serif text-4xl font-medium tracking-tight text-[#1C1C1A] lg:text-5xl">
                   {project.title}
                 </h3>
 
-                <p className="text-sm leading-7 text-[#8a8a8a]">
+                <p className="text-sm leading-7 text-[#8C8A85]">
                   {project.description}
                 </p>
 
                 <Link
                   to={`/work/${project.slug}`}
-                  className="mt-4 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1a1a1a] transition-all group-hover:gap-4"
+                  className="mt-4 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[#1C1C1A] transition-all group-hover:gap-4"
                 >
                   View project <ArrowRight size={14} />
                 </Link>

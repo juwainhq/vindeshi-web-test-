@@ -33,7 +33,7 @@ export function Hero() {
         {/* Availability indicator */}
         <div className="reveal mb-16 flex items-center gap-2">
           <span className="h-2 w-2 animate-pulse rounded-full bg-[#b86b4c]" />
-          <span className="text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-[#8C8A85]">
             {profile.availability}
           </span>
         </div>
@@ -42,22 +42,22 @@ export function Hero() {
         <div className="grid gap-16 lg:grid-cols-2 lg:gap-24">
           {/* Left — Name & Info */}
           <div>
-            <h1 className="reveal font-serif text-6xl leading-[0.95] tracking-tight text-[#1a1a1a] sm:text-7xl lg:text-8xl">
+            <h1 className="reveal font-serif text-6xl leading-[0.95] tracking-tight text-[#1C1C1A] sm:text-7xl lg:text-8xl">
               {profile.name}
             </h1>
 
-            <p className="reveal animate-fade-in-delay-1 mt-6 text-lg font-medium text-[#8a8a8a] sm:text-xl">
+            <p className="reveal animate-fade-in-delay-1 mt-6 text-lg font-medium text-[#8C8A85] sm:text-xl">
               {profile.title}
             </p>
 
             <hr className="reveal animate-fade-in-delay-2 my-10 divider" />
 
-            <p className="reveal animate-fade-in-delay-2 max-w-lg text-base leading-8 text-[#1a1a1a] lg:text-lg">
+            <p className="reveal animate-fade-in-delay-2 max-w-lg text-base leading-8 text-[#1C1C1A] lg:text-lg">
               {profile.bio}
             </p>
 
             {/* Location */}
-            <div className="reveal animate-fade-in-delay-3 mt-10 flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+            <div className="reveal animate-fade-in-delay-3 mt-10 flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[#8C8A85]">
               <MapPin size={13} strokeWidth={1.5} />
               {profile.location}
             </div>

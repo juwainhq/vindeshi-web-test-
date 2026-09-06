@@ -28,7 +28,7 @@ export function About() {
         {/* Section Label */}
         <div className="reveal mb-20 flex items-center gap-4">
           <span className="h-px w-12 bg-[#b86b4c]" />
-          <span className="text-[10px] uppercase tracking-[0.28em] text-[#8a8a8a]">
+          <span className="text-[10px] uppercase tracking-[0.28em] text-[#8C8A85]">
             About
           </span>
         </div>
@@ -36,7 +36,7 @@ export function About() {
         <div className="grid gap-20 lg:grid-cols-12 lg:gap-24">
           {/* Skills */}
           <div className="lg:col-span-4">
-            <h3 className="reveal font-serif text-3xl font-medium tracking-tight text-[#1a1a1a] lg:text-4xl">
+            <h3 className="reveal font-serif text-3xl font-medium tracking-tight text-[#1C1C1A] lg:text-4xl">
               Craft & Expertise
             </h3>
 
@@ -44,7 +44,7 @@ export function About() {
               {profile.skills.map((skill) => (
                 <span
                   key={skill}
-                  className="border border-[#e5e3df] px-4 py-2 text-xs text-[#1a1a1a]"
+                  className="border border-[#E6E2DA] px-4 py-2 text-xs text-[#1C1C1A]"
                 >
                   {skill}
                 </span>
@@ -54,7 +54,7 @@ export function About() {
 
           {/* Experience */}
           <div className="lg:col-span-8">
-            <h3 className="reveal font-serif text-3xl font-medium tracking-tight text-[#1a1a1a] lg:text-4xl">
+            <h3 className="reveal font-serif text-3xl font-medium tracking-tight text-[#1C1C1A] lg:text-4xl">
               Experience
             </h3>
 
@@ -62,23 +62,23 @@ export function About() {
               {profile.experience.map((exp, i) => (
                 <div
                   key={i}
-                  className="flex flex-col gap-1 border-t border-[#e5e3df] py-8 sm:flex-row sm:items-start sm:justify-between"
+                  className="flex flex-col gap-1 border-t border-[#E6E2DA] py-8 sm:flex-row sm:items-start sm:justify-between"
                 >
                   <div>
-                    <p className="text-base font-medium text-[#1a1a1a]">{exp.role}</p>
-                    <p className="mt-1 text-sm text-[#8a8a8a]">{exp.company}</p>
+                    <p className="text-base font-medium text-[#1C1C1A]">{exp.role}</p>
+                    <p className="mt-1 text-sm text-[#8C8A85]">{exp.company}</p>
                   </div>
-                  <span className="text-xs uppercase tracking-[0.12em] text-[#8a8a8a] sm:mt-1">
+                  <span className="text-xs uppercase tracking-[0.12em] text-[#8C8A85] sm:mt-1">
                     {exp.period}
                   </span>
                 </div>
               ))}
-              <div className="h-px border-t border-[#e5e3df] pt-8" />
+              <div className="h-px border-t border-[#E6E2DA] pt-8" />
             </div>
 
             {/* Email CTA */}
             <div className="reveal mt-12">
-              <p className="text-sm leading-7 text-[#8a8a8a]">
+              <p className="text-sm leading-7 text-[#8C8A85]">
                 Interested in working together?{' '}
                 <a
                   href="mailto:hello@jashrabintehaque.com"

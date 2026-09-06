@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { MapPin } from 'lucide-react';
 import { profile } from '../lib/content';
+import { TopFloralAccent } from './public/TopFloralAccent';
 
 export function Hero() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -30,6 +31,11 @@ export function Hero() {
       className="min-h-screen pt-24 lg:pt-32"
     >
       <div className="mx-auto max-w-7xl px-6 lg:px-12">
+        {/* Top floral accent */}
+        <div className="reveal mb-8 flex justify-center">
+          <TopFloralAccent />
+        </div>
+
         {/* Availability indicator */}
         <div className="reveal mb-16 flex items-center gap-2">
           <span className="h-2 w-2 animate-pulse rounded-full bg-[#b86b4c]" />

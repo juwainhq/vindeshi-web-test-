@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabase';
-import type { SiteContent, SiteSettings, Product, Collection } from './types';
+import type { SiteContent, SiteSettings, Product, Collection, Testimonial } from './types';
 
 const SETTINGS_KEYS = [
   'id', 'brand_name', 'brand_tagline', 'announcement',
@@ -11,10 +11,14 @@ const SETTINGS_KEYS = [
   'story_eyebrow', 'story_title', 'story_title_italic', 'story_body1', 'story_body2', 'story_image',
   'newsletter_eyebrow', 'newsletter_title',
   'footer_copyright',
+  'features_eyebrow', 'features_title',
+  'feature1_title', 'feature1_text', 'feature2_title', 'feature2_text', 'feature3_title', 'feature3_text',
+  'testimonials_eyebrow', 'testimonials_title',
 ].join(', ');
 
 const PRODUCT_KEYS = 'id, name, category, price, color, badge, image_url, sort_order, is_visible';
 const COLLECTION_KEYS = 'id, eyebrow, title, image_url, sort_order';
+const TESTIMONIAL_KEYS = 'id, quote, name, role, sort_order, is_visible';
 
 export function useSiteContent() {
   const [content, setContent] = useState<SiteContent | null>(null);
@@ -25,15 +29,17 @@ export function useSiteContent() {
     setLoading(true);
     setError(null);
     try {
-      const [settingsRes, productsRes, collectionsRes] = await Promise.all([
+      const [settingsRes, productsRes, collectionsRes, testimonialsRes] = await Promise.all([
         supabase.from('site_settings').select(SETTINGS_KEYS).eq('id', 1).maybeSingle(),
         supabase.from('products').select(PRODUCT_KEYS).order('sort_order', { ascending: true }),
         supabase.from('collections').select(COLLECTION_KEYS).order('sort_order', { ascending: true }),
+        supabase.from('testimonials').select(TESTIMONIAL_KEYS).order('sort_order', { ascending: true }),
       ]);
 
       if (settingsRes.error) throw settingsRes.error;
       if (productsRes.error) throw productsRes.error;
       if (collectionsRes.error) throw collectionsRes.error;
+      if (testimonialsRes.error) throw testimonialsRes.error;
 
       if (!settingsRes.data) {
         setError('Site settings not found.');
@@ -45,6 +51,7 @@ export function useSiteContent() {
         settings: settingsRes.data as unknown as SiteSettings,
         products: (productsRes.data ?? []) as unknown as Product[],
         collections: (collectionsRes.data ?? []) as unknown as Collection[],
+        testimonials: (testimonialsRes.data ?? []) as unknown as Testimonial[],
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not load site content.';
@@ -108,5 +115,26 @@ export async function updateCollection(id: string, patch: Partial<Collection>): 
 
 export async function deleteCollection(id: string): Promise<void> {
   const { error } = await supabase.from('collections').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function createTestimonial(testimonial: Omit<Testimonial, 'id'>): Promise<Testimonial> {
+  const { data, error } = await supabase
+    .from('testimonials')
+    .insert(testimonial)
+    .select(TESTIMONIAL_KEYS)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Could not create testimonial.');
+  return data as unknown as Testimonial;
+}
+
+export async function updateTestimonial(id: string, patch: Partial<Testimonial>): Promise<void> {
+  const { error } = await supabase.from('testimonials').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteTestimonial(id: string): Promise<void> {
+  const { error } = await supabase.from('testimonials').delete().eq('id', id);
   if (error) throw error;
 }

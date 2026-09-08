@@ -20,11 +20,14 @@ import {
   createCollection,
   updateCollection,
   deleteCollection,
+  createTestimonial,
+  updateTestimonial,
+  deleteTestimonial,
 } from '../lib/useSiteContent';
-import type { SiteSettings, Product, Collection } from '../lib/types';
+import type { SiteSettings, Product, Collection, Testimonial } from '../lib/types';
 import { ImageUploader } from './ImageUploader';
 
-type Tab = 'brand' | 'hero' | 'shop' | 'story' | 'products' | 'collections';
+type Tab = 'brand' | 'hero' | 'features' | 'shop' | 'story' | 'testimonials' | 'products' | 'collections';
 
 export function AdminPanel({ onClose }: { onClose: () => void }) {
   const { signOut } = useAuth();
@@ -34,8 +37,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const tabs: { id: Tab; label: string; icon: typeof Sparkles }[] = [
     { id: 'brand', label: 'Brand & Logo', icon: Sparkles },
     { id: 'hero', label: 'Hero Section', icon: Sparkles },
+    { id: 'features', label: 'Features', icon: SettingsIcon },
     { id: 'shop', label: 'Shop Section', icon: SettingsIcon },
     { id: 'story', label: 'Story Section', icon: SettingsIcon },
+    { id: 'testimonials', label: 'Testimonials', icon: Package },
     { id: 'products', label: 'Products', icon: Package },
     { id: 'collections', label: 'Collections', icon: Package },
   ];
@@ -95,8 +100,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
 
         {tab === 'brand' && <BrandEditor settings={content.settings} />}
         {tab === 'hero' && <HeroEditor settings={content.settings} />}
+        {tab === 'features' && <FeaturesEditor settings={content.settings} />}
         {tab === 'shop' && <ShopEditor settings={content.settings} />}
         {tab === 'story' && <StoryEditor settings={content.settings} />}
+        {tab === 'testimonials' && <TestimonialsEditor testimonials={content.testimonials} settings={content.settings} />}
         {tab === 'products' && <ProductsEditor products={content.products} />}
         {tab === 'collections' && <CollectionsEditor collections={content.collections} />}
       </div>
@@ -232,6 +239,40 @@ function HeroEditor({ settings }: { settings: SiteSettings }) {
   );
 }
 
+// ── Features editor ────────────────────────────────────────────
+function FeaturesEditor({ settings }: { settings: SiteSettings }) {
+  const { draft, set, save, saveError, isDirty } = useEditableSettings(settings);
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-black/50">
+        The three feature cards shown directly under the hero. Icons are chosen automatically (delivery, design, durability).
+      </p>
+      <Field label="Features eyebrow text" value={draft.features_eyebrow} onChange={(v) => set('features_eyebrow', v)} />
+      <Field label="Features section title" value={draft.features_title} onChange={(v) => set('features_title', v)} />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#a05a39]">Card 1</p>
+          <Field label="Title" value={draft.feature1_title} onChange={(v) => set('feature1_title', v)} />
+          <Field label="Text" value={draft.feature1_text} onChange={(v) => set('feature1_text', v)} />
+        </div>
+        <div className="space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#a05a39]">Card 2</p>
+          <Field label="Title" value={draft.feature2_title} onChange={(v) => set('feature2_title', v)} />
+          <Field label="Text" value={draft.feature2_text} onChange={(v) => set('feature2_text', v)} />
+        </div>
+        <div className="space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#a05a39]">Card 3</p>
+          <Field label="Title" value={draft.feature3_title} onChange={(v) => set('feature3_title', v)} />
+          <Field label="Text" value={draft.feature3_text} onChange={(v) => set('feature3_text', v)} />
+        </div>
+      </div>
+      <SaveButton onSave={save} saved={!isDirty} />
+      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+    </div>
+  );
+}
+
 // ── Shop section editor ────────────────────────────────────────
 function ShopEditor({ settings }: { settings: SiteSettings }) {
   const { draft, set, save, saveError, isDirty } = useEditableSettings(settings);
@@ -260,6 +301,152 @@ function StoryEditor({ settings }: { settings: SiteSettings }) {
       <ImageUploader label="Story image" value={draft.story_image} onChange={(v) => set('story_image', v)} />
       <SaveButton onSave={save} saved={!isDirty} />
       {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+    </div>
+  );
+}
+
+// ── Testimonials editor ───────────────────────────────────────
+function TestimonialsEditor({
+  testimonials,
+  settings,
+}: {
+  testimonials: Testimonial[];
+  settings: SiteSettings;
+}) {
+  const heading = useEditableSettings(settings);
+  const [items, setItems] = useState<Testimonial[]>(testimonials);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setItems(testimonials);
+  }, [testimonials]);
+
+  const update = (id: string, patch: Partial<Testimonial>) => {
+    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  };
+
+  const saveOne = async (t: Testimonial) => {
+    setBusy(t.id);
+    setError(null);
+    try {
+      await updateTestimonial(t.id, {
+        quote: t.quote,
+        name: t.name,
+        role: t.role,
+        sort_order: t.sort_order,
+        is_visible: t.is_visible,
+      });
+    } catch {
+      setError('Could not save testimonial.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setBusy(id);
+    setError(null);
+    try {
+      await deleteTestimonial(id);
+      setItems((prev) => prev.filter((t) => t.id !== id));
+    } catch {
+      setError('Could not delete testimonial.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const addNew = async () => {
+    setBusy('new');
+    setError(null);
+    try {
+      const created = await createTestimonial({
+        quote: 'Write your review here.',
+        name: 'Customer name',
+        role: 'Their role, city',
+        sort_order: items.length,
+        is_visible: true,
+      });
+      setItems((prev) => [...prev, created]);
+    } catch {
+      setError('Could not add testimonial.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <Field
+          label="Testimonials eyebrow text"
+          value={heading.draft.testimonials_eyebrow}
+          onChange={(v) => heading.set('testimonials_eyebrow', v)}
+        />
+        <Field
+          label="Testimonials section title"
+          value={heading.draft.testimonials_title}
+          onChange={(v) => heading.set('testimonials_title', v)}
+        />
+        <SaveButton onSave={heading.save} saved={!heading.isDirty} />
+        {heading.saveError && <p className="text-xs text-red-600">{heading.saveError}</p>}
+      </div>
+
+      <div className="space-y-4 border-t border-black/10 pt-6">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-black/50">
+            {items.length} testimonial{items.length !== 1 ? 's' : ''}
+          </p>
+          <button
+            onClick={() => void addNew()}
+            disabled={busy === 'new'}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
+          >
+            <Plus size={14} /> Add testimonial
+          </button>
+        </div>
+
+        {error && <p className="text-xs text-red-600">{error}</p>}
+
+        {items.map((t) => (
+          <div key={t.id} className="rounded-xl border border-black/10 bg-white p-5">
+            <div className="space-y-3">
+              <Field label="Quote" value={t.quote} onChange={(v) => update(t.id, { quote: v })} textarea />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Name" value={t.name} onChange={(v) => update(t.id, { name: v })} />
+                <Field label="Role / city" value={t.role} onChange={(v) => update(t.id, { role: v })} />
+              </div>
+              <label className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  checked={t.is_visible}
+                  onChange={(e) => update(t.id, { is_visible: e.target.checked })}
+                  className="h-4 w-4 accent-[#a05a39]"
+                />
+                <span className="text-xs font-medium">Visible on storefront</span>
+              </label>
+            </div>
+            <div className="mt-4 flex items-center gap-3 border-t border-black/10 pt-4">
+              <button
+                onClick={() => void saveOne(t)}
+                disabled={busy === t.id}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
+              >
+                {busy === t.id ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Save
+              </button>
+              <button
+                onClick={() => void remove(t.id)}
+                disabled={busy === t.id}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-4 py-2 text-xs font-bold uppercase tracking-wide text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                <Trash2 size={14} /> Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

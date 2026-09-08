@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { createElement, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowRight,
   ChevronDown,
@@ -19,34 +19,7 @@ import { CartDrawer } from './CartDrawer';
 import { SearchOverlay } from './SearchOverlay';
 import { Toast, type ToastState } from './Toast';
 
-type Category = 'All' | 'Women' | 'Men' | 'Travel';
-type CartLine = { product: Product; qty: number };
-
-const CATEGORIES: Category[] = ['All', 'Women', 'Men', 'Travel'];
-
-const FEATURES = [
-  { icon: Truck, title: 'Free delivery', text: 'On all orders over Tk 2,000' },
-  { icon: Sparkles, title: 'Thoughtful design', text: 'Clean lines, considered details' },
-  { icon: Heart, title: 'Made to last', text: 'Crafted from durable materials' },
-];
-
-const TESTIMONIALS = [
-  {
-    quote: 'The tote carries my whole life — laptop, lunch, everything — and still looks elegant.',
-    name: 'Rifat Ahmed',
-    role: 'Architect, Dhaka',
-  },
-  {
-    quote: 'Beautifully made. The straps stay comfortable even on my longest days.',
-    name: 'Nusrat Jahan',
-    role: 'Designer, Chattogram',
-  },
-  {
-    quote: 'Quiet, confident design. It goes from the office to dinner without missing a beat.',
-    name: 'Tanvir Hasan',
-    role: 'Photographer, Sylhet',
-  },
-];
+const FEATURE_ICONS = [Truck, Sparkles, Heart] as const;
 
 export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
   const { content, loading, error } = useSiteContent();
@@ -81,7 +54,16 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
   const settings: SiteSettings | null = content?.settings ?? null;
   const products: Product[] = content?.products ?? [];
   const collections = content?.collections ?? [];
+  const testimonials = content?.testimonials ?? [];
   const cartCount = cart.reduce((sum, line) => sum + line.qty, 0);
+
+  const featureData = [
+    { title: settings?.feature1_title ?? '', text: settings?.feature1_text ?? '' },
+    { title: settings?.feature2_title ?? '', text: settings?.feature2_text ?? '' },
+    { title: settings?.feature3_title ?? '', text: settings?.feature3_text ?? '' },
+  ];
+
+  const testimonialData = testimonials.filter((t) => t.is_visible);
 
   useEffect(() => {
     const onScroll = () => setShowTop(window.scrollY > 700);
@@ -256,20 +238,28 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
         </section>
 
         <section className="border-b border-black/10 bg-[#f7f7f5]">
-          <div className="mx-auto grid max-w-[1440px] gap-6 px-5 py-10 sm:grid-cols-3 sm:px-8 lg:px-12">
-            {FEATURES.map((feature) => (
-              <Reveal key={feature.title}>
-                <div className="flex items-start gap-4">
-                  <span className="rounded-full bg-[#a05a39]/10 p-3 text-[#a05a39]">
-                    <feature.icon size={18} strokeWidth={1.7} />
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-semibold">{feature.title}</h3>
-                    <p className="mt-1 text-xs leading-5 text-black/50">{feature.text}</p>
+          <div className="mx-auto max-w-[1440px] px-5 py-10 sm:px-8 lg:px-12">
+            <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">{settings.features_eyebrow}</p>
+                <h2 className="font-serif text-3xl tracking-[-0.05em] sm:text-4xl">{settings.features_title}</h2>
+              </div>
+            </div>
+            <div className="grid gap-6 sm:grid-cols-3">
+              {featureData.map((feature, index) => (
+                <Reveal key={feature.title}>
+                  <div className="flex items-start gap-4">
+                    <span className="rounded-full bg-[#a05a39]/10 p-3 text-[#a05a39]">
+                      {createElement(FEATURE_ICONS[index % 3], { size: 18, strokeWidth: 1.7 })}
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-semibold">{feature.title}</h3>
+                      <p className="mt-1 text-xs leading-5 text-black/50">{feature.text}</p>
+                    </div>
                   </div>
-                </div>
-              </Reveal>
+                </Reveal>
               ))}
+            </div>
           </div>
         </section>
 
@@ -381,26 +371,30 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
           <div className="mx-auto max-w-[1440px]">
             <Reveal>
               <div className="mb-12 text-center">
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">Kind words</p>
-                <h2 className="font-serif text-4xl tracking-[-0.05em] sm:text-5xl">Loved by everyday carriers</h2>
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">{settings.testimonials_eyebrow}</p>
+                <h2 className="font-serif text-4xl tracking-[-0.05em] sm:text-5xl">{settings.testimonials_title}</h2>
               </div>
             </Reveal>
-            <div className="grid gap-5 md:grid-cols-3">
-              {TESTIMONIALS.map((t, index) => (
-                <Reveal delay={index * 120} key={t.name}>
-                  <figure className="flex h-full flex-col bg-[#f7f7f5] p-8 shadow-[0_10px_30px_rgba(0,0,0,0.05)]">
-                    <Quote className="mb-5 text-[#a05a39]/60" size={26} strokeWidth={1.5} />
-                    <blockquote className="flex-1 font-serif text-lg leading-8 tracking-[-0.01em] text-black/80">
-                      “{t.quote}”
-                    </blockquote>
-                    <figcaption className="mt-7 border-t border-black/10 pt-5">
-                      <p className="text-sm font-semibold">{t.name}</p>
-                      <p className="mt-1 text-xs text-black/45">{t.role}</p>
-                    </figcaption>
-                  </figure>
-                </Reveal>
-              ))}
-            </div>
+            {testimonialData.length === 0 ? (
+              <p className="py-10 text-center text-sm text-black/45">No reviews yet.</p>
+            ) : (
+              <div className="grid gap-5 md:grid-cols-3">
+                {testimonialData.map((t, index) => (
+                  <Reveal delay={index * 120} key={t.name}>
+                    <figure className="flex h-full flex-col bg-[#f7f7f5] p-8 shadow-[0_10px_30px_rgba(0,0,0,0.05)]">
+                      <Quote className="mb-5 text-[#a05a39]/60" size={26} strokeWidth={1.5} />
+                      <blockquote className="flex-1 font-serif text-lg leading-8 tracking-[-0.01em] text-black/80">
+                        “{t.quote}”
+                      </blockquote>
+                      <figcaption className="mt-7 border-t border-black/10 pt-5">
+                        <p className="text-sm font-semibold">{t.name}</p>
+                        <p className="mt-1 text-xs text-black/45">{t.role}</p>
+                      </figcaption>
+                    </figure>
+                  </Reveal>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 

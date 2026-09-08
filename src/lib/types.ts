@@ -22,6 +22,16 @@ export type SiteSettings = {
   newsletter_eyebrow: string;
   newsletter_title: string;
   footer_copyright: string;
+  features_eyebrow: string;
+  features_title: string;
+  feature1_title: string;
+  feature1_text: string;
+  feature2_title: string;
+  feature2_text: string;
+  feature3_title: string;
+  feature3_text: string;
+  testimonials_eyebrow: string;
+  testimonials_title: string;
 };
 
 export type Product = {
@@ -44,6 +54,15 @@ export type Collection = {
   sort_order: number;
 };
 
+export type Testimonial = {
+  id: string;
+  quote: string;
+  name: string;
+  role: string;
+  sort_order: number;
+  is_visible: boolean;
+};
+
 export type CartItem = {
   id: string;
   name: string;
@@ -57,4 +76,5 @@ export type SiteContent = {
   settings: SiteSettings;
   products: Product[];
   collections: Collection[];
+  testimonials: Testimonial[];
 };

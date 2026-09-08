@@ -322,7 +322,7 @@ function ProductsEditor({ products }: { products: Product[] }) {
         price: '0',
         color: 'Black',
         badge: null,
-        image_url: '/images/20260718_133617.jpg',
+        image_url: '/images/20260718_160025.jpg',
         sort_order: items.length,
         is_visible: true,
       });
@@ -459,7 +459,7 @@ function CollectionsEditor({ collections }: { collections: Collection[] }) {
       const created = await createCollection({
         eyebrow: 'New collection',
         title: 'Title here',
-        image_url: '/images/20260718_133535.jpg',
+        image_url: '/images/20260718_160025.jpg',
         sort_order: items.length,
       });
       setItems((prev) => [...prev, created]);

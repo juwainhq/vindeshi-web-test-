@@ -44,6 +44,15 @@ export type Collection = {
   sort_order: number;
 };
 
+export type CartItem = {
+  id: string;
+  name: string;
+  color: string;
+  price: string;
+  image_url: string;
+  qty: number;
+};
+
 export type SiteContent = {
   settings: SiteSettings;
   products: Product[];

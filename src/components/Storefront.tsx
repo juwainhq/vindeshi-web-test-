@@ -1,34 +1,100 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowRight,
   ChevronDown,
   Heart,
   Loader2,
   Menu,
+  Quote,
   Search,
   ShoppingBag,
   Sparkles,
+  Truck,
   X,
 } from 'lucide-react';
 import { useSiteContent } from '../lib/useSiteContent';
 import type { SiteSettings, Product } from '../lib/types';
+import { Reveal } from './Reveal';
+import { CartDrawer } from './CartDrawer';
+import { SearchOverlay } from './SearchOverlay';
+import { Toast, type ToastState } from './Toast';
 
 type Category = 'All' | 'Women' | 'Men' | 'Travel';
+type CartLine = { product: Product; qty: number };
 
 const CATEGORIES: Category[] = ['All', 'Women', 'Men', 'Travel'];
+
+const FEATURES = [
+  { icon: Truck, title: 'Free delivery', text: 'On all orders over Tk 2,000' },
+  { icon: Sparkles, title: 'Thoughtful design', text: 'Clean lines, considered details' },
+  { icon: Heart, title: 'Made to last', text: 'Crafted from durable materials' },
+];
+
+const TESTIMONIALS = [
+  {
+    quote: 'The tote carries my whole life — laptop, lunch, everything — and still looks elegant.',
+    name: 'Rifat Ahmed',
+    role: 'Architect, Dhaka',
+  },
+  {
+    quote: 'Beautifully made. The straps stay comfortable even on my longest days.',
+    name: 'Nusrat Jahan',
+    role: 'Designer, Chattogram',
+  },
+  {
+    quote: 'Quiet, confident design. It goes from the office to dinner without missing a beat.',
+    name: 'Tanvir Hasan',
+    role: 'Photographer, Sylhet',
+  },
+];
 
 export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
   const { content, loading, error } = useSiteContent();
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [cartCount, setCartCount] = useState(0);
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [likedProducts, setLikedProducts] = useState<string[]>([]);
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
+  const [toast, setToast] = useState<ToastState>(null);
+  const [showTop, setShowTop] = useState(false);
+
+  const showToast = (message: string) => {
+    setToast({ message, key: Date.now() });
+  };
+
+  const addToCart = (product: Product) => {
+    setCart((current) => {
+      const existing = current.find((line) => line.product.id === product.id);
+      if (existing) {
+        return current.map((line) =>
+          line.product.id === product.id ? { ...line, qty: line.qty + 1 } : line
+        );
+      }
+      return [...current, { product, qty: 1 }];
+    });
+    showToast(`${product.name} added to your bag`);
+  };
 
   const settings: SiteSettings | null = content?.settings ?? null;
   const products: Product[] = content?.products ?? [];
   const collections = content?.collections ?? [];
+  const cartCount = cart.reduce((sum, line) => sum + line.qty, 0);
+
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 700);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = cartOpen || searchOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [cartOpen, searchOpen]);
 
   const filteredProducts = useMemo(
     () =>
@@ -46,9 +112,28 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
     );
   };
 
+  const setQty = (id: string, qty: number) => {
+    setCart((current) =>
+      qty <= 0
+        ? current.filter((line) => line.product.id !== id)
+        : current.map((line) => (line.product.id === id ? { ...line, qty } : line))
+    );
+  };
+
+  const removeFromCart = (id: string) => {
+    setCart((current) => current.filter((line) => line.product.id !== id));
+  };
+
   const handleSubscribe = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (email.trim()) setSubscribed(true);
+    if (email.trim()) {
+      setSubscribed(true);
+      showToast('Welcome to the Vindeshi list');
+    }
+  };
+
+  const handleCheckout = () => {
+    showToast('Checkout coming soon — your bag is saved');
   };
 
   if (loading) {
@@ -76,7 +161,7 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
         {settings.announcement}
       </div>
 
-      <header className="relative z-20 border-b border-black/10 bg-[#f7f7f5]/95 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-black/10 bg-[#f7f7f5]/95 backdrop-blur">
         <div className="mx-auto flex h-[76px] max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
           <button
             aria-label="Open menu"
@@ -98,13 +183,18 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
               {settings.brand_tagline}
             </span>
           </a>
-          <div className="ml-auto flex items-center gap-1 sm:gap-3">
-            <button aria-label="Search" className="rounded-full p-2 transition hover:bg-black/5">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            <button
+              aria-label="Search"
+              className="rounded-full p-2 transition hover:bg-black/5"
+              onClick={() => setSearchOpen(true)}
+            >
               <Search size={18} strokeWidth={1.7} />
             </button>
             <button
               aria-label="Shopping bag"
               className="relative rounded-full p-2 transition hover:bg-black/5"
+              onClick={() => setCartOpen(true)}
             >
               <ShoppingBag size={18} strokeWidth={1.7} />
               {cartCount > 0 && (
@@ -165,6 +255,24 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
           </div>
         </section>
 
+        <section className="border-b border-black/10 bg-[#f7f7f5]">
+          <div className="mx-auto grid max-w-[1440px] gap-6 px-5 py-10 sm:grid-cols-3 sm:px-8 lg:px-12">
+            {FEATURES.map((feature) => (
+              <Reveal key={feature.title}>
+                <div className="flex items-start gap-4">
+                  <span className="rounded-full bg-[#a05a39]/10 p-3 text-[#a05a39]">
+                    <feature.icon size={18} strokeWidth={1.7} />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold">{feature.title}</h3>
+                    <p className="mt-1 text-xs leading-5 text-black/50">{feature.text}</p>
+                  </div>
+                </div>
+              </Reveal>
+              ))}
+          </div>
+        </section>
+
         <section id="shop" className="mx-auto max-w-[1440px] px-5 py-20 sm:px-8 lg:px-12 lg:py-28">
           <div className="mb-10 flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
             <div>
@@ -183,36 +291,42 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
               ))}
             </div>
           </div>
-          <div className="grid gap-x-5 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
-            {filteredProducts.map((product) => (
-              <article className="group" key={product.id}>
-                <div className="relative aspect-square overflow-hidden bg-[#e9e9e5]">
-                  <img className="h-full w-full object-cover object-[center_42%] grayscale-[12%] transition duration-700 group-hover:scale-105" src={product.image_url} alt={product.name} />
-                  {product.badge && <span className="absolute left-3 top-3 bg-[#f7f7f5] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em]">{product.badge}</span>}
-                  <button
-                    aria-label={`Save ${product.name}`}
-                    className="absolute right-3 top-3 rounded-full bg-[#f7f7f5]/90 p-2 transition hover:bg-white"
-                    onClick={() => toggleLike(product.name)}
-                  >
-                    <Heart size={15} fill={likedProducts.includes(product.name) ? '#a05a39' : 'none'} color={likedProducts.includes(product.name) ? '#a05a39' : '#171717'} />
-                  </button>
-                  <button
-                    className="absolute bottom-3 left-3 right-3 translate-y-16 bg-[#171717] py-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white opacity-0 transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"
-                    onClick={() => setCartCount((count) => count + 1)}
-                  >
-                    Add to bag
-                  </button>
-                </div>
-                <div className="flex items-start justify-between pt-4">
-                  <div>
-                    <h3 className="text-sm font-semibold">{product.name}</h3>
-                    <p className="mt-1 text-xs text-black/45">{product.color} · {product.category}</p>
-                  </div>
-                  <p className="text-sm font-semibold">Tk {product.price}</p>
-                </div>
-              </article>
-            ))}
-          </div>
+          {filteredProducts.length === 0 ? (
+            <p className="py-16 text-center text-sm text-black/45">Nothing here yet — check back soon.</p>
+          ) : (
+            <div className="grid gap-x-5 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
+              {filteredProducts.map((product, index) => (
+                <Reveal delay={(index % 4) * 80} key={product.id}>
+                  <article className="group">
+                    <div className="relative aspect-square overflow-hidden bg-[#e9e9e5]">
+                      <img className="h-full w-full object-cover object-[center_42%] grayscale-[12%] transition duration-700 group-hover:scale-105" src={product.image_url} alt={product.name} />
+                      {product.badge && <span className="absolute left-3 top-3 bg-[#f7f7f5] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em]">{product.badge}</span>}
+                      <button
+                        aria-label={`Save ${product.name}`}
+                        className="absolute right-3 top-3 rounded-full bg-[#f7f7f5]/90 p-2 transition hover:bg-white"
+                        onClick={() => toggleLike(product.name)}
+                      >
+                        <Heart size={15} fill={likedProducts.includes(product.name) ? '#a05a39' : 'none'} color={likedProducts.includes(product.name) ? '#a05a39' : '#171717'} />
+                      </button>
+                      <button
+                        className="absolute bottom-3 left-3 right-3 translate-y-16 bg-[#171717] py-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white opacity-0 transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"
+                        onClick={() => addToCart(product)}
+                      >
+                        Add to bag
+                      </button>
+                    </div>
+                    <div className="flex items-start justify-between pt-4">
+                      <div>
+                        <h3 className="text-sm font-semibold">{product.name}</h3>
+                        <p className="mt-1 text-xs text-black/45">{product.color} · {product.category}</p>
+                      </div>
+                      <p className="text-sm font-semibold">Tk {product.price}</p>
+                    </div>
+                  </article>
+                </Reveal>
+              ))}
+            </div>
+          )}
           <div className="mt-12 flex justify-center">
             <button className="inline-flex items-center gap-3 border-b border-black pb-2 text-[11px] font-bold uppercase tracking-[0.2em] transition hover:gap-5">
               View all bags <ArrowRight size={15} />
@@ -230,32 +344,63 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
               <ChevronDown className="hidden rotate-[-90deg] opacity-50 sm:block" />
             </div>
             <div className="grid gap-5 md:grid-cols-2">
-              {collections.map((collection) => (
-                <a className="group relative min-h-[410px] overflow-hidden bg-[#353535]" href="#shop" key={collection.id}>
-                  <img className="absolute inset-0 h-full w-full object-cover object-[center_42%] opacity-60 grayscale transition duration-700 group-hover:scale-105 group-hover:opacity-75" src={collection.image_url} alt={collection.title} />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
-                  <div className="absolute bottom-7 left-7 sm:bottom-10 sm:left-10">
-                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-[#d9a98c]">{collection.eyebrow}</p>
-                    <h3 className="font-serif text-4xl leading-[0.95] tracking-[-0.05em] sm:text-5xl">{collection.title}</h3>
-                    <span className="mt-6 inline-flex items-center gap-3 border-b border-white/70 pb-2 text-[10px] font-bold uppercase tracking-[0.2em] transition group-hover:gap-5">Shop the edit <ArrowRight size={14} /></span>
-                  </div>
-                </a>
+              {collections.map((collection, index) => (
+                <Reveal delay={index * 120} key={collection.id}>
+                  <a className="group relative block min-h-[410px] overflow-hidden bg-[#353535]" href="#shop">
+                    <img className="absolute inset-0 h-full w-full object-cover object-[center_42%] opacity-60 grayscale transition duration-700 group-hover:scale-105 group-hover:opacity-75" src={collection.image_url} alt={collection.title} />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
+                    <div className="absolute bottom-7 left-7 sm:bottom-10 sm:left-10">
+                      <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-[#d9a98c]">{collection.eyebrow}</p>
+                      <h3 className="font-serif text-4xl leading-[0.95] tracking-[-0.05em] sm:text-5xl">{collection.title}</h3>
+                      <span className="mt-6 inline-flex items-center gap-3 border-b border-white/70 pb-2 text-[10px] font-bold uppercase tracking-[0.2em] transition group-hover:gap-5">Shop the edit <ArrowRight size={14} /></span>
+                    </div>
+                  </a>
+                </Reveal>
               ))}
             </div>
           </div>
         </section>
 
-        <section id="story" className="mx-auto grid max-w-[1440px] items-center gap-12 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:gap-24 lg:px-20 lg:py-28">
-          <div className="relative mx-auto max-w-[470px]">
+        <section className="mx-auto grid max-w-[1440px] items-center gap-12 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:gap-24 lg:px-20 lg:py-28">
+          <Reveal className="relative mx-auto max-w-[470px]">
             <div className="absolute -left-5 -top-5 h-full w-full border border-[#a05a39]/40" />
             <img className="relative aspect-[4/5] w-full object-cover object-[center_42%] grayscale-[8%]" src={settings.story_image} alt="Vindeshi tote bag" />
-          </div>
-          <div className="max-w-[500px]">
-            <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">{settings.story_eyebrow}</p>
-            <h2 className="font-serif text-5xl leading-[0.95] tracking-[-0.06em] sm:text-6xl">{settings.story_title}<br /><em className="font-normal">{settings.story_title_italic}</em></h2>
-            <p className="mt-7 text-sm leading-7 text-black/60">{settings.story_body1}</p>
-            <p className="mt-4 text-sm leading-7 text-black/60">{settings.story_body2}</p>
-            <a className="mt-8 inline-flex items-center gap-3 border-b border-black pb-2 text-[11px] font-bold uppercase tracking-[0.2em] transition hover:gap-5" href="#shop">Discover our story <ArrowRight size={15} /></a>
+          </Reveal>
+          <Reveal delay={150}>
+            <div className="max-w-[500px]">
+              <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">{settings.story_eyebrow}</p>
+              <h2 className="font-serif text-5xl leading-[0.95] tracking-[-0.06em] sm:text-6xl">{settings.story_title}<br /><em className="font-normal">{settings.story_title_italic}</em></h2>
+              <p className="mt-7 text-sm leading-7 text-black/60">{settings.story_body1}</p>
+              <p className="mt-4 text-sm leading-7 text-black/60">{settings.story_body2}</p>
+              <a className="mt-8 inline-flex items-center gap-3 border-b border-black pb-2 text-[11px] font-bold uppercase tracking-[0.2em] transition hover:gap-5" href="#shop">Discover our story <ArrowRight size={15} /></a>
+            </div>
+          </Reveal>
+        </section>
+
+        <section className="bg-[#ecebe7] px-5 py-20 sm:px-8 lg:px-12">
+          <div className="mx-auto max-w-[1440px]">
+            <Reveal>
+              <div className="mb-12 text-center">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">Kind words</p>
+                <h2 className="font-serif text-4xl tracking-[-0.05em] sm:text-5xl">Loved by everyday carriers</h2>
+              </div>
+            </Reveal>
+            <div className="grid gap-5 md:grid-cols-3">
+              {TESTIMONIALS.map((t, index) => (
+                <Reveal delay={index * 120} key={t.name}>
+                  <figure className="flex h-full flex-col bg-[#f7f7f5] p-8 shadow-[0_10px_30px_rgba(0,0,0,0.05)]">
+                    <Quote className="mb-5 text-[#a05a39]/60" size={26} strokeWidth={1.5} />
+                    <blockquote className="flex-1 font-serif text-lg leading-8 tracking-[-0.01em] text-black/80">
+                      “{t.quote}”
+                    </blockquote>
+                    <figcaption className="mt-7 border-t border-black/10 pt-5">
+                      <p className="text-sm font-semibold">{t.name}</p>
+                      <p className="mt-1 text-xs text-black/45">{t.role}</p>
+                    </figcaption>
+                  </figure>
+                </Reveal>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -292,6 +437,44 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
           <p className="text-[10px] uppercase tracking-[0.15em] text-white/35">{settings.footer_copyright}</p>
         </div>
       </footer>
+
+      <CartDrawer
+        items={cart.map((line) => ({
+          id: line.product.id,
+          name: line.product.name,
+          color: line.product.color,
+          price: line.product.price,
+          image_url: line.product.image_url,
+          qty: line.qty,
+        }))}
+        onClose={() => setCartOpen(false)}
+        onCheckout={handleCheckout}
+        onRemove={removeFromCart}
+        onSetQty={setQty}
+        open={cartOpen}
+      />
+
+      <SearchOverlay
+        onClose={() => setSearchOpen(false)}
+        onSelect={(product) => {
+          addToCart(product);
+          setCartOpen(true);
+        }}
+        open={searchOpen}
+        products={products}
+      />
+
+      <Toast toast={toast} />
+
+      {showTop && (
+        <button
+          aria-label="Back to top"
+          className="fixed bottom-6 right-6 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-[#171717] text-white shadow-xl transition hover:bg-[#a05a39]"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        >
+          <ChevronDown className="rotate-180" size={18} />
+        </button>
+      )}
     </div>
   );
 }

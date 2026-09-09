@@ -23,8 +23,17 @@ import {
   getLocalProducts,
   saveLocalProducts,
   clearLocalProducts,
-  getAdminPassword,
   setAdminPassword,
+  verifyAdminPassword,
+  isLockedOut,
+  recordFailedAttempt,
+  resetRateLimit,
+  getLockoutRemainingMs,
+  createSession,
+  isSessionValid,
+  clearSession,
+  getSessionRemainingMs,
+  migratePlainTextPassword,
   type Order,
   type OrderStatus,
 } from '../lib/local-store';
@@ -55,51 +64,126 @@ const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 
 function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (isLockedOut()) {
+      setIsLocked(true);
+    } else {
+      setIsLocked(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSessionValid()) {
+      setSessionExpired(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (sessionExpired) {
+      const timer = setTimeout(() => {
+        clearSession();
+        resetRateLimit();
+        setSessionExpired(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [sessionExpired]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === getAdminPassword()) {
+
+    if (isLocked) {
+      const remaining = getLockoutRemainingMs();
+      setError(`Too many failed attempts. Try again in ${Math.ceil(remaining / 1000)}s.`);
+      return;
+    }
+
+    if (!isSessionValid()) {
+      setSessionExpired(true);
+      setError('Session expired. Please try again.');
+      return;
+    }
+
+    const verified = await verifyAdminPassword(password);
+    if (verified) {
+      createSession();
+      resetRateLimit();
       onUnlock();
     } else {
-      setError(true);
+      const { locked, remaining } = recordFailedAttempt();
+      setError(locked ? `Too many failed attempts. Try again in ${Math.ceil(remaining / 1000)}s.` : 'Incorrect password.');
     }
   };
 
+  useEffect(() => {
+    if (password) {
+      const timer = setTimeout(() => setError(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [password]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#171717] px-5">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-2xl bg-[#f7f7f5] p-8 text-center"
-      >
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#a05a39]/10 text-[#a05a39]">
-          <Lock size={22} />
-        </span>
-        <h1 className="font-serif text-2xl tracking-tight text-[#171717]">Admin access</h1>
-        <p className="text-xs text-black/50">
-          This area is restricted. Enter the admin password to continue.
-        </p>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            setError(false);
-          }}
-          placeholder="Password"
-          autoFocus
-          className={`w-full rounded-lg border px-3.5 py-3 text-sm text-[#171717] outline-none transition ${
-            error ? 'border-red-400' : 'border-black/15 focus:border-[#a05a39]'
-          }`}
-        />
-        {error && <p className="text-xs font-semibold text-red-600">Incorrect password.</p>}
-        <button
-          type="submit"
-          className="w-full rounded-lg bg-[#171717] py-3 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39]"
+      {isLocked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#171717] rounded-2xl p-8 text-center max-w-sm">
+            <Lock size={48} className="mx-auto mb-4 text-[#a05a39]" />
+            <h2 className="font-serif text-2xl tracking-tight text-[#171717] mb-2">Account locked</h2>
+            <p className="text-black/60 mb-6">
+              Too many failed attempts. Please wait before trying again.
+            </p>
+            <p className="text-xs text-black/40">
+              Try again in{' '}
+              <span className="font-medium text-[#a05a39]" id="lock-remaining">
+                --
+              </span> seconds.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!isLocked && (
+        <form
+          onSubmit={handleSubmit}
+          className="w-full max-w-sm space-y-4 rounded-2xl bg-[#f7f7f5] p-8 text-center"
         >
-          Unlock dashboard
-        </button>
-      </form>
+          {sessionExpired && (
+            <p className="text-xs text-black/50 mb-4">
+              Session expired. Enter password to continue.
+            </p>
+          )}
+
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#a05a39]/10 text-[#a05a39]">
+            <Lock size={22} />
+          </span>
+          <h1 className="font-serif text-2xl tracking-tight text-[#171717]">Admin access</h1>
+          <p className="text-xs text-black/50">
+            This area is restricted. Enter the admin password to continue.
+          </p>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
+            placeholder="Password"
+            autoFocus
+            className="w-full rounded-lg border border-black/15 px-3.5 py-3 text-sm text-[#171717] outline-none transition focus:border-[#a05a39]"
+          />
+          {error && <p className="text-xs font-semibold text-red-600">{error}</p>}
+          <button
+            type="submit"
+            className="w-full rounded-lg bg-[#171717] py-3 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39]"
+          >
+            Unlock dashboard
+          </button>
+        </form>
+      )}
     </div>
   );
 }
@@ -564,29 +648,29 @@ function SettingsTab() {
   const [confirm, setConfirm] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password.length < 4) {
-      setMessage('Password must be at least 4 characters.');
-      return;
-    }
-    if (password !== confirm) {
-      setMessage('Passwords do not match.');
-      return;
-    }
-    setAdminPassword(password);
-    setMessage('Password updated.');
-    setPassword('');
-    setConfirm('');
-  };
+  const handleSave = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (password.length < 4) {
+        setMessage('Password must be at least 4 characters.');
+        return;
+      }
+      if (password !== confirm) {
+        setMessage('Passwords do not match.');
+        return;
+      }
+      await setAdminPassword(password);
+      setMessage('Password updated.');
+      setPassword('');
+      setConfirm('');
+    };
 
   return (
     <div className="max-w-md space-y-5">
       <div className="rounded-xl border border-black/10 bg-white p-6">
         <h2 className="font-serif text-xl tracking-tight">Admin password</h2>
         <p className="mt-1 text-xs text-black/50">
-          Stored in this browser's localStorage. Default is "admin123".
-        </p>
+                  Stored in this browser's localStorage as a secure hash.
+                </p>
         <form className="mt-5 space-y-4" onSubmit={handleSave}>
           <div>
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-black/40">
@@ -628,6 +712,11 @@ function SettingsTab() {
 export function AdminDashboard() {
   const [unlocked, setUnlocked] = useState(false);
   const [tab, setTab] = useState<Tab>('orders');
+
+  // Migrate any existing plain-text password to hashed version
+  useEffect(() => {
+    migratePlainTextPassword();
+  }, []);
 
   if (!unlocked) {
     return <PasswordGate onUnlock={() => setUnlocked(true)} />;

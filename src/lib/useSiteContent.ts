@@ -81,52 +81,6 @@ export async function updateSettings(patch: Partial<SiteSettings>): Promise<void
   if (error) throw error;
 }
 
-export async function createProduct(product: Omit<Product, 'id'>): Promise<Product> {
-  const { data, error } = await supabase
-    .from('products')
-    .insert(product)
-    .select(PRODUCT_KEYS)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error('Could not create product.');
-  return data as unknown as Product;
-}
-
-/**
- * Replaces the live store with the catalog from src/data/products.ts.
- * Deletes everything in the products table, then inserts the catalog
- * with fresh database ids.
- */
-export async function importCatalog(catalog: Product[]): Promise<void> {
-  const { error: deleteError } = await supabase.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  if (deleteError) throw deleteError;
-
-  const rows = catalog.map((p) => ({
-    name: p.name,
-    category: p.category,
-    price: p.price,
-    color: p.color,
-    badge: p.badge,
-    description: p.description,
-    images: p.images,
-    sort_order: p.sort_order,
-    is_visible: p.is_visible,
-  }));
-
-  const { error: insertError } = await supabase.from('products').insert(rows);
-  if (insertError) throw insertError;
-}
-
-export async function updateProduct(id: string, patch: Partial<Product>): Promise<void> {
-  const { error } = await supabase.from('products').update(patch).eq('id', id);
-  if (error) throw error;
-}
-
-export async function deleteProduct(id: string): Promise<void> {
-  const { error } = await supabase.from('products').delete().eq('id', id);
-  if (error) throw error;
-}
-
 export async function createCollection(collection: Omit<Collection, 'id'>): Promise<Collection> {
   const { data, error } = await supabase
     .from('collections')

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRight,
@@ -27,8 +27,7 @@ const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 
 export function CheckoutPage() {
   const { content, loading } = useSiteContent();
-  const { cart, clearCart, placeOrder } = useCart();
-  const navigate = useNavigate();
+  const { cart, placeOrder } = useCart();
 
   const [customerName, setCustomerName] = useState('');
   const [email, setEmail] = useState('');

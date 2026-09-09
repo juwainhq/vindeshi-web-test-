@@ -5,6 +5,7 @@ import {
   Banknote,
   CheckCircle2,
   Clock,
+  FileText,
   Lock,
   Package,
   Plus,
@@ -28,9 +29,10 @@ import {
   type OrderStatus,
 } from '../lib/local-store';
 import { useSiteContent } from '../lib/useSiteContent';
+import { SiteContentPanel } from '../components/SiteContentPanel';
 import type { Product } from '../lib/types';
 
-type Tab = 'orders' | 'inventory' | 'settings';
+type Tab = 'orders' | 'inventory' | 'content' | 'settings';
 
 const STATUSES: OrderStatus[] = ['Pending', 'Completed', 'Cancelled'];
 
@@ -338,12 +340,11 @@ function OrdersTab() {
 /* ── Inventory tab ────────────────────────────────────────────── */
 
 function InventoryTab() {
-  const { content, reload } = useSiteContent();
+  const { content } = useSiteContent();
   const dbProducts = content?.products ?? [];
 
   const [usingLocal, setUsingLocal] = useState(() => getLocalProducts() !== null);
   const [items, setItems] = useState<Product[]>(() => getLocalProducts() ?? []);
-  const [newImage, setNewImage] = useState<Record<string, string>>({});
   const [savedFlash, setSavedFlash] = useState(false);
 
   // Load DB products into the editor when local list is empty
@@ -635,6 +636,7 @@ export function AdminDashboard() {
   const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
     { id: 'orders', label: 'Orders', icon: ShoppingBag },
     { id: 'inventory', label: 'Inventory', icon: Package },
+    { id: 'content', label: 'Site Content', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -676,6 +678,7 @@ export function AdminDashboard() {
 
         {tab === 'orders' && <OrdersTab />}
         {tab === 'inventory' && <InventoryTab />}
+        {tab === 'content' && <SiteContentPanel />}
         {tab === 'settings' && <SettingsTab />}
       </div>
     </div>

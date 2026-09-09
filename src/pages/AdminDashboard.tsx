@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   FileText,
+  Loader2,
   Lock,
   Package,
   Plus,
@@ -15,8 +16,11 @@ import {
   ShoppingBag,
   Smartphone,
   Trash2,
+  Upload,
+  X,
   XCircle,
 } from 'lucide-react';
+import { toCompactDataUrl } from '../lib/image';
 import {
   getOrders,
   saveOrders,
@@ -430,6 +434,8 @@ function InventoryTab() {
   const [usingLocal, setUsingLocal] = useState(() => getLocalProducts() !== null);
   const [items, setItems] = useState<Product[]>(() => getLocalProducts() ?? []);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [urlEditorId, setUrlEditorId] = useState<string | null>(null);
 
   // Load DB products into the editor when local list is empty
   useEffect(() => {
@@ -448,6 +454,30 @@ function InventoryTab() {
 
   const update = (id: string, patch: Partial<Product>) => {
     persist(items.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  };
+
+  /** Uploads picked files, converts them to compact data URLs, and
+   *  appends them to the product's photo list. */
+  const handleFiles = async (id: string, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploadingId(id);
+    try {
+      const converted: string[] = [];
+      for (const file of Array.from(files)) {
+        converted.push(await toCompactDataUrl(file));
+      }
+      update(id, {
+        images: [...(items.find((p) => p.id === id)?.images ?? []), ...converted],
+      });
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const removeImage = (id: string, index: number) => {
+    const product = items.find((p) => p.id === id);
+    if (!product) return;
+    update(id, { images: product.images.filter((_, i) => i !== index) });
   };
 
   const addNew = () => {
@@ -597,28 +627,89 @@ function InventoryTab() {
             {/* Right: photos */}
             <div>
               <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-black/40">
-                Photo URLs (one per line — first is the cover)
+                Photos (first is the cover)
               </p>
-              <textarea
-                rows={8}
-                value={product.images.join('\n')}
-                onChange={(e) =>
-                  update(product.id, {
-                    images: e.target.value.split('\n').filter((line) => line.trim() !== ''),
-                  })
-                }
-                placeholder={'/images/photo1.jpg\nhttps://example.com/photo2.jpg'}
-                className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-xs outline-none focus:border-[#a05a39]"
-              />
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+
+              {/* Thumbnails with delete buttons */}
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {product.images.length === 0 && (
+                  <div className="flex h-16 w-16 items-center justify-center rounded border border-dashed border-black/15 text-[10px] text-black/30">
+                    No photos
+                  </div>
+                )}
                 {product.images.map((image, i) => (
                   <div
                     key={image + i}
-                    className="h-16 w-16 shrink-0 overflow-hidden rounded border border-black/10 bg-[#e9e9e5]"
+                    className="group relative h-16 w-16 shrink-0 overflow-hidden rounded border border-black/10 bg-[#e9e9e5]"
                   >
                     <img src={image} alt="" className="h-full w-full object-cover" />
+                    {i === 0 && (
+                      <span className="absolute bottom-0 left-0 right-0 bg-[#171717]/80 px-1 py-0.5 text-center text-[8px] font-bold uppercase tracking-wide text-white">
+                        Cover
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      title="Remove photo"
+                      onClick={() => removeImage(product.id, i)}
+                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#171717] text-white opacity-0 transition hover:bg-[#a05a39] group-hover:opacity-100"
+                    >
+                      <X size={12} />
+                    </button>
                   </div>
                 ))}
+              </div>
+
+              {/* Upload button */}
+              <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-black/20 bg-[#fafaf8] px-4 py-4 text-xs font-bold uppercase tracking-wide text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]">
+                {uploadingId === product.id ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> Processing photos…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={15} /> Upload photo(s)
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={async (e) => {
+                    const input = e.currentTarget;
+                    await handleFiles(product.id, e.target.files);
+                    input.value = ''; // allow re-picking the same file
+                  }}
+                />
+              </label>
+
+              {/* Collapsible URL fallback */}
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setUrlEditorId(urlEditorId === product.id ? null : product.id)
+                  }
+                  className="text-[10px] font-semibold uppercase tracking-wide text-black/40 underline-offset-2 transition hover:text-[#a05a39] hover:underline"
+                >
+                  {urlEditorId === product.id ? '− Hide' : '+ Paste image URLs manually'}
+                </button>
+                {urlEditorId === product.id && (
+                  <textarea
+                    rows={4}
+                    value={product.images.join('\n')}
+                    onChange={(e) =>
+                      update(product.id, {
+                        images: e.target.value
+                          .split('\n')
+                          .filter((line) => line.trim() !== ''),
+                      })
+                    }
+                    placeholder={'/images/photo1.jpg\nhttps://example.com/photo2.jpg'}
+                    className="mt-2 w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-xs outline-none focus:border-[#a05a39]"
+                  />
+                )}
               </div>
             </div>
           </div>

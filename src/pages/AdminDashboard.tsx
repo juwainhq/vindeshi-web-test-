@@ -33,11 +33,9 @@ import {
   recordFailedAttempt,
   resetRateLimit,
   getLockoutRemainingMs,
-  createSession,
-  isSessionValid,
-  clearSession,
-  getSessionRemainingMs,
-  migratePlainTextPassword,
+  isLoggedIn,
+  setLoggedIn,
+  resetAdminSession,
   type Order,
   type OrderStatus,
 } from '../lib/local-store';
@@ -69,125 +67,120 @@ const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [isLocked, setIsLocked] = useState(false);
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [lockRemaining, setLockRemaining] = useState<number>(0);
 
-  useEffect(() => {
-    if (isLockedOut()) {
-      setIsLocked(true);
-    } else {
-      setIsLocked(false);
-    }
-  }, []);
+  const locked = lockRemaining > 0;
 
+  // Live countdown while locked out
   useEffect(() => {
-    if (!isSessionValid()) {
-      setSessionExpired(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (sessionExpired) {
-      const timer = setTimeout(() => {
-        clearSession();
+    if (!locked) return;
+    setLockRemaining(getLockoutRemainingMs());
+    const timer = setInterval(() => {
+      const remaining = getLockoutRemainingMs();
+      setLockRemaining(remaining);
+      if (remaining <= 0) {
         resetRateLimit();
-        setSessionExpired(false);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [sessionExpired]);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [locked]);
+
+  // Clear the error message once the user starts typing again
+  useEffect(() => {
+    if (password && error) setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [password]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isLocked) {
-      const remaining = getLockoutRemainingMs();
-      setError(`Too many failed attempts. Try again in ${Math.ceil(remaining / 1000)}s.`);
-      return;
-    }
-
-    if (!isSessionValid()) {
-      setSessionExpired(true);
-      setError('Session expired. Please try again.');
+    if (isLockedOut()) {
+      setLockRemaining(getLockoutRemainingMs());
       return;
     }
 
     const verified = await verifyAdminPassword(password);
     if (verified) {
-      createSession();
       resetRateLimit();
+      setLoggedIn(true); // stay logged in on this browser until you log out
       onUnlock();
     } else {
-      const { locked, remaining } = recordFailedAttempt();
-      setError(locked ? `Too many failed attempts. Try again in ${Math.ceil(remaining / 1000)}s.` : 'Incorrect password.');
+      const { locked: nowLocked } = recordFailedAttempt();
+      setError(
+        nowLocked
+          ? 'Too many failed attempts — you can wait, or use "Reset admin session" below.'
+          : 'Incorrect password. Default is "admin123".'
+      );
     }
   };
 
-  useEffect(() => {
-    if (password) {
-      const timer = setTimeout(() => setError(null), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [password]);
+  const handleReset = () => {
+    resetAdminSession(); // restores the default password and clears the lockout
+    setPassword('');
+    setError(null);
+    setLockRemaining(0);
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#171717] px-5">
-      {isLocked && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-[#171717] rounded-2xl p-8 text-center max-w-sm">
-            <Lock size={48} className="mx-auto mb-4 text-[#a05a39]" />
-            <h2 className="font-serif text-2xl tracking-tight text-[#171717] mb-2">Account locked</h2>
-            <p className="text-black/60 mb-6">
-              Too many failed attempts. Please wait before trying again.
-            </p>
-            <p className="text-xs text-black/40">
-              Try again in{' '}
-              <span className="font-medium text-[#a05a39]" id="lock-remaining">
-                --
-              </span> seconds.
-            </p>
-          </div>
-        </div>
-      )}
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-sm space-y-4 rounded-2xl bg-[#f7f7f5] p-8 text-center"
+      >
+        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#a05a39]/10 text-[#a05a39]">
+          <Lock size={22} />
+        </span>
+        <h1 className="font-serif text-2xl tracking-tight text-[#171717]">Admin access</h1>
+        <p className="text-xs text-black/50">
+          This area is restricted. Enter the admin password to continue.
+        </p>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setError(null);
+          }}
+          placeholder="Password"
+          autoFocus
+          disabled={locked}
+          className={`w-full rounded-lg border px-3.5 py-3 text-sm text-[#171717] outline-none transition ${
+            error || locked
+              ? 'border-red-400'
+              : 'border-black/15 focus:border-[#a05a39]'
+          } ${locked ? 'cursor-not-allowed opacity-60' : ''}`}
+        />
 
-      {!isLocked && (
-        <form
-          onSubmit={handleSubmit}
-          className="w-full max-w-sm space-y-4 rounded-2xl bg-[#f7f7f5] p-8 text-center"
-        >
-          {sessionExpired && (
-            <p className="text-xs text-black/50 mb-4">
-              Session expired. Enter password to continue.
-            </p>
-          )}
-
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#a05a39]/10 text-[#a05a39]">
-            <Lock size={22} />
-          </span>
-          <h1 className="font-serif text-2xl tracking-tight text-[#171717]">Admin access</h1>
-          <p className="text-xs text-black/50">
-            This area is restricted. Enter the admin password to continue.
+        {locked ? (
+          <p className="text-xs font-semibold text-red-600">
+            Too many failed attempts. Try again in{' '}
+            {Math.ceil(lockRemaining / 1000)}s — or use the reset button below.
           </p>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setError(null);
-            }}
-            placeholder="Password"
-            autoFocus
-            className="w-full rounded-lg border border-black/15 px-3.5 py-3 text-sm text-[#171717] outline-none transition focus:border-[#a05a39]"
-          />
-          {error && <p className="text-xs font-semibold text-red-600">{error}</p>}
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-[#171717] py-3 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39]"
-          >
-            Unlock dashboard
-          </button>
-        </form>
-      )}
+        ) : (
+          error && <p className="text-xs font-semibold text-red-600">{error}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={locked}
+          className="w-full rounded-lg bg-[#171717] py-3 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Unlock dashboard
+        </button>
+
+        {/* Emergency escape hatch — never get stuck on this screen */}
+        <button
+          type="button"
+          onClick={handleReset}
+          className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.15em] text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]"
+        >
+          Reset admin session
+        </button>
+        <p className="text-[10px] leading-4 text-black/40">
+          Resetting restores the default password ("admin123") and clears any
+          lockout on this browser.
+        </p>
+      </form>
     </div>
   );
 }
@@ -760,8 +753,10 @@ function SettingsTab() {
       <div className="rounded-xl border border-black/10 bg-white p-6">
         <h2 className="font-serif text-xl tracking-tight">Admin password</h2>
         <p className="mt-1 text-xs text-black/50">
-                  Stored in this browser's localStorage as a secure hash.
-                </p>
+          Stored in this browser's localStorage as a hash. Matching is
+          case-insensitive. Default: <span className="font-semibold">admin123</span> —
+          reset it anytime from the login screen.
+        </p>
         <form className="mt-5 space-y-4" onSubmit={handleSave}>
           <div>
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-black/40">
@@ -801,13 +796,9 @@ function SettingsTab() {
 /* ── Dashboard shell ──────────────────────────────────────────── */
 
 export function AdminDashboard() {
-  const [unlocked, setUnlocked] = useState(false);
+  // Stay logged in on this browser until you explicitly log out.
+  const [unlocked, setUnlocked] = useState(isLoggedIn);
   const [tab, setTab] = useState<Tab>('orders');
-
-  // Migrate any existing plain-text password to hashed version
-  useEffect(() => {
-    migratePlainTextPassword();
-  }, []);
 
   if (!unlocked) {
     return <PasswordGate onUnlock={() => setUnlocked(true)} />;
@@ -830,10 +821,13 @@ export function AdminDashboard() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setUnlocked(false)}
+              onClick={() => {
+                setLoggedIn(false); // manual log out — clears the saved flag
+                setUnlocked(false);
+              }}
               className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-3 py-1.5 text-xs font-semibold transition hover:bg-black/5"
             >
-              <Lock size={13} /> Lock
+              <Lock size={13} /> Log out
             </button>
           </div>
         </div>

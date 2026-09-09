@@ -1,32 +1,4 @@
 import type { Product } from './types';
-import {
-  hashPassword,
-  verifyPassword as verifyStoredPassword,
-  isLockedOut,
-  recordFailedAttempt,
-  resetRateLimit,
-  getLockoutRemainingMs,
-  createSession,
-  isSessionValid,
-  clearSession,
-  getSessionRemainingMs,
-  migratePlainTextPassword,
-} from './admin-auth';
-
-// Re-export admin auth functions for use in components
-export {
-  hashPassword,
-  verifyStoredPassword,
-  isLockedOut,
-  recordFailedAttempt,
-  resetRateLimit,
-  getLockoutRemainingMs,
-  createSession,
-  isSessionValid,
-  clearSession,
-  getSessionRemainingMs,
-  migratePlainTextPassword,
-};
 
 export type OrderStatus = 'Pending' | 'Completed' | 'Cancelled';
 
@@ -56,7 +28,6 @@ export type Order = {
 
 const ORDERS_KEY = 'vindeshi_orders';
 const PRODUCTS_KEY = 'vindeshi_products';
-const PASSWORD_HASH_KEY = 'vindeshi_admin_password_hash';
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -109,17 +80,16 @@ export function clearLocalProducts(): void {
   }
 }
 
-/* ── Admin password (hashed) ────────────────────────────────── */
-
-/** Store a hashed admin password. */
-export async function setAdminPassword(password: string): Promise<void> {
-  const hash = await hashPassword(password);
-  write(PASSWORD_HASH_KEY, hash);
-}
-
-/** Verify a password against the stored hash. */
-export async function verifyAdminPassword(password: string): Promise<boolean> {
-  const stored = read<string | null>(PASSWORD_HASH_KEY, null);
-  if (!stored) return false;
-  return verifyStoredPassword(password);
-}
+/* ── Re-export admin auth functions ───────────────────────────── */
+/** @see {@link ./admin-auth} */
+export {
+  setAdminPassword,
+  verifyAdminPassword,
+  isLockedOut,
+  recordFailedAttempt,
+  resetRateLimit,
+  getLockoutRemainingMs,
+  isLoggedIn,
+  setLoggedIn,
+  resetAdminSession,
+} from './admin-auth';

@@ -1,69 +1,125 @@
 /**
- * Secure admin authentication helpers.
+ * Admin authentication helpers.
  *
- * The admin password is hashed with SHA-256 before being stored in localStorage,
- * so a compromised browser never exposes the raw credential.
- *
- * Rate limiting is enforced at the component level — failed attempts are
- * tracked in memory and locked out for a short window.
+ * - The admin password is hashed (SHA-256 of the lowercase form, so
+ *   matching is case-insensitive) before being stored in localStorage.
+ * - When no custom password has been set, the default "admin123" is
+ *   accepted (in any letter case).
+ * - Login state is a simple localStorage flag with NO expiry — you stay
+ *   logged in on this browser until you manually log out.
+ * - resetAdminSession() is an emergency escape hatch that restores the
+ *   default password and clears any lockout, so you can never get stuck.
  */
-// Temporary comment to trigger TypeScript server restart
 
-const PASSWORD_KEY = 'vindeshi_admin_password';
-const SESSION_KEY = 'vindeshi_admin_session';
+const PASSWORD_HASH_KEY = 'vindeshi_admin_password_hash';
+const LEGACY_PASSWORD_KEY = 'vindeshi_admin_password'; // plain-text, older version
+const LOGGED_IN_KEY = 'vindeshi_admin_logged_in';
 const RATE_LIMIT_KEY = 'vindeshi_admin_rate_limit';
+
+/** Default password (case-insensitive) until a custom one is set. */
+export const DEFAULT_PASSWORD = 'admin123';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000; // 5 minutes
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-
-type RateLimitState = {
-  attempts: number;
-  lockedUntil: number | null;
-};
-
-type SessionState = {
-  expiresAt: number;
-};
 
 /* ── Hashing ────────────────────────────────────────────────── */
 
-export async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-/* ── Password storage ───────────────────────────────────────── */
-
-export async function getStoredPasswordHash(): Promise<string | null> {
+async function hashPassword(password: string): Promise<string> {
+  const lower = password.toLowerCase();
   try {
-    return localStorage.getItem(PASSWORD_KEY);
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(lower)
+      );
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
   } catch {
-    return null;
+    // fall through to the fallback below
   }
+  // Fallback for non-secure contexts (e.g. http previews) where
+  // crypto.subtle is unavailable — a simple deterministic hash.
+  let h1 = 0x811c9dc5;
+  let h2 = 0x1000193;
+  for (let i = 0; i < lower.length; i++) {
+    h1 = Math.imul(h1 ^ lower.charCodeAt(i), 16777619) >>> 0;
+    h2 = Math.imul(h2 + lower.charCodeAt(i), 31 + i) >>> 0;
+  }
+  return `fb-${h1.toString(16)}-${h2.toString(16)}`;
 }
 
-export async function setStoredPasswordHash(password: string): Promise<void> {
-  const hash = await hashPassword(password);
+/* ── Password ────────────────────────────────────────────────── */
+
+/** Store a custom admin password (hashed, matched case-insensitively). */
+export async function setAdminPassword(password: string): Promise<void> {
   try {
-    localStorage.setItem(PASSWORD_KEY, hash);
+    localStorage.setItem(PASSWORD_HASH_KEY, await hashPassword(password));
   } catch {
     // storage unavailable
   }
 }
 
-export async function verifyPassword(password: string): Promise<boolean> {
-  const stored = await getStoredPasswordHash();
-  if (!stored) return false;
-  const hash = await hashPassword(password);
-  return hash === stored;
+/** Read the stored hash, ignoring corrupt values from older versions. */
+async function getStoredPasswordHash(): Promise<string | null> {
+  try {
+    const stored = localStorage.getItem(PASSWORD_HASH_KEY);
+    // An earlier version stored the hash JSON-quoted ("…"). Such values
+    // can never match a raw hash, so treat them as unset and clear them.
+    if (stored && !stored.startsWith('"')) return stored;
+    if (stored) localStorage.removeItem(PASSWORD_HASH_KEY);
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
-/* ── Rate limiting ──────────────────────────────────────────── */
+/** Verify a password (case-insensitive) against the stored hash. */
+export async function verifyAdminPassword(password: string): Promise<boolean> {
+  const stored = await getStoredPasswordHash();
+  const expected = stored ?? (await hashPassword(DEFAULT_PASSWORD));
+  return (await hashPassword(password)) === expected;
+}
+
+/** Emergency reset: restores the default password and clears any
+ *  lockout or saved login, so you can never get stuck outside. */
+export function resetAdminSession(): void {
+  try {
+    localStorage.removeItem(PASSWORD_HASH_KEY);
+    localStorage.removeItem(LEGACY_PASSWORD_KEY);
+    localStorage.removeItem(RATE_LIMIT_KEY);
+    localStorage.removeItem(LOGGED_IN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/* ── Login state (no expiry — until you log out) ─────────────── */
+
+export function isLoggedIn(): boolean {
+  try {
+    return localStorage.getItem(LOGGED_IN_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setLoggedIn(loggedIn: boolean): void {
+  try {
+    if (loggedIn) {
+      localStorage.setItem(LOGGED_IN_KEY, 'true');
+    } else {
+      localStorage.removeItem(LOGGED_IN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/* ── Rate limiting (always resettable via resetAdminSession) ─── */
+
+type RateLimitState = { attempts: number; lockedUntil: number | null };
 
 function readRateLimit(): RateLimitState {
   try {
@@ -99,10 +155,10 @@ export function recordFailedAttempt(): { locked: boolean; remaining: number } {
   if (attempts >= MAX_ATTEMPTS) {
     const lockedUntil = Date.now() + LOCKOUT_MS;
     writeRateLimit({ attempts, lockedUntil });
-    return { locked: true, remaining: 0 };
+    return { locked: true, remaining: LOCKOUT_MS };
   }
   writeRateLimit({ attempts, lockedUntil: null });
-  return { locked: false, remaining: MAX_ATTEMPTS - attempts };
+  return { locked: false, remaining: 0 };
 }
 
 export function resetRateLimit(): void {
@@ -113,69 +169,4 @@ export function getLockoutRemainingMs(): number {
   const state = readRateLimit();
   if (!state.lockedUntil) return 0;
   return Math.max(0, state.lockedUntil - Date.now());
-}
-
-/* ── Session management ──────────────────────────────────────── */
-
-export function createSession(): void {
-  const session: SessionState = {
-    expiresAt: Date.now() + SESSION_TIMEOUT_MS,
-  };
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  } catch {
-    // ignore
-  }
-}
-
-export function isSessionValid(): boolean {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return false;
-    const session = JSON.parse(raw) as SessionState;
-    return Date.now() < session.expiresAt;
-  } catch {
-    return false;
-  }
-}
-
-export function clearSession(): void {
-  try {
-    localStorage.removeItem(SESSION_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-export function getSessionRemainingMs(): number {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return 0;
-    const session = JSON.parse(raw) as SessionState;
-    return Math.max(0, session.expiresAt - Date.now());
-  } catch {
-    return 0;
-  }
-}
-
-/* ── Migration helper ────────────────────────────────────────── */
-
-/**
- * If the old plain-text password exists, migrate it to a hashed version.
- * This should be called once on app load.
- */
-export async function migratePlainTextPassword(): Promise<void> {
-  const OLD_KEY = 'vindeshi_admin_password';
-  try {
-    const raw = localStorage.getItem(OLD_KEY);
-    if (raw && raw !== 'admin123') {
-      // Old plain-text password exists — hash and store it
-      const hash = await hashPassword(raw);
-      localStorage.setItem(PASSWORD_KEY, hash);
-      // Remove the old plain-text key
-      localStorage.removeItem(OLD_KEY);
-    }
-  } catch {
-    // ignore
-  }
 }

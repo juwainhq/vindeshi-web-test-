@@ -21,6 +21,11 @@ import { Toast, type ToastState } from './Toast';
 
 const FEATURE_ICONS = [Truck, Sparkles, Heart] as const;
 
+type Category = 'All' | 'Women' | 'Men' | 'Travel';
+type CartLine = { product: Product; qty: number };
+
+const CATEGORIES: Category[] = ['All', 'Women', 'Men', 'Travel'];
+
 export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
   const { content, loading, error } = useSiteContent();
   const [activeCategory, setActiveCategory] = useState<Category>('All');

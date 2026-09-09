@@ -1,11 +1,11 @@
 /**
  * ─────────────────────────────────────────────────────────────────
- *  YOUR PRODUCT CATALOG
+ *  YOUR PRODUCT CATALOG (reference)
  * ─────────────────────────────────────────────────────────────────
- *  Add, edit, or remove products here — each product can have any
- *  number of photos. After editing, open the Admin panel → Products
- *  and click "Import catalog file" to publish your changes to the
- *  live store (this keeps the storefront and database in sync).
+ *  This file is a reference copy of the catalog. The live store
+ *  reads products from the database. To manage products directly,
+ *  visit /admin → Inventory tab (changes save to this browser and
+ *  override the database on the storefront).
  *
  *  image: any URL works —
  *    • local files:   '/images/my-bag.jpg'     (put files in public/images/)

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabase';
+import { getLocalProducts } from './local-store';
 import type { SiteContent, SiteSettings, Product, Collection, Testimonial } from './types';
 
 const SETTINGS_KEYS = [
@@ -47,9 +48,13 @@ export function useSiteContent() {
         return;
       }
 
+      // The hidden admin's Inventory tab saves products to localStorage —
+      // when present, they override the database list everywhere.
+      const localProducts = getLocalProducts();
+
       setContent({
         settings: settingsRes.data as unknown as SiteSettings,
-        products: (productsRes.data ?? []) as unknown as Product[],
+        products: (localProducts ?? productsRes.data ?? []) as unknown as Product[],
         collections: (collectionsRes.data ?? []) as unknown as Collection[],
         testimonials: (testimonialsRes.data ?? []) as unknown as Testimonial[],
       });

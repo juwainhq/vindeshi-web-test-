@@ -1,4 +1,5 @@
 import { Minus, Plus, ShoppingBag, Trash2, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type { CartItem } from '../lib/types';
 
 const FREE_DELIVERY_THRESHOLD = 2000;
@@ -12,15 +13,19 @@ export function CartDrawer({
   onClose,
   onSetQty,
   onRemove,
-  onCheckout,
 }: {
   open: boolean;
   items: CartItem[];
   onClose: () => void;
   onSetQty: (id: string, qty: number) => void;
   onRemove: (id: string) => void;
-  onCheckout: () => void;
 }) {
+  const navigate = useNavigate();
+
+  const goCheckout = () => {
+    onClose();
+    navigate('/checkout');
+  };
   const subtotal = items.reduce(
     (sum, item) => sum + toNumber(item.price) * item.qty,
     0
@@ -151,7 +156,7 @@ export function CartDrawer({
               <p className="mb-4 text-[10px] text-black/45">Delivery calculated at checkout.</p>
               <button
                 className="inline-flex w-full items-center justify-center gap-2 bg-[#171717] py-4 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39]"
-                onClick={onCheckout}
+                onClick={goCheckout}
               >
                 Checkout · {formatTk(subtotal)}
               </button>

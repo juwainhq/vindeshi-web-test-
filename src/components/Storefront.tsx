@@ -27,7 +27,7 @@ type Category = 'All' | 'Women' | 'Men' | 'Travel';
 
 const CATEGORIES: Category[] = ['All', 'Women', 'Men', 'Travel'];
 
-export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
+export function Storefront() {
   const { content, loading, error } = useSiteContent();
   const {
     cart,
@@ -427,7 +427,6 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
             <a className="transition hover:text-white" href="#shop">Shop</a>
             <a className="transition hover:text-white" href="#story">Contact</a>
             <a className="transition hover:text-white" href="#top">Instagram</a>
-            <button onClick={onAdminClick} className="transition hover:text-white">Admin</button>
           </div>
           <p className="text-[10px] uppercase tracking-[0.15em] text-white/35">{settings.footer_copyright}</p>
         </div>
@@ -443,7 +442,6 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
           qty: line.qty,
         }))}
         onClose={() => setCartOpen(false)}
-        onCheckout={() => showToast('Checkout coming soon — your bag is saved')}
         onRemove={removeFromCart}
         onSetQty={setQty}
         open={cartOpen}

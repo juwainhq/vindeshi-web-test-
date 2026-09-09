@@ -19,7 +19,7 @@ import { Reveal } from '../components/Reveal';
 import { CartDrawer } from '../components/CartDrawer';
 import { Toast } from '../components/Toast';
 
-export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
+export function ProductPage() {
   const { content, loading, error } = useSiteContent();
   const {
     addToCart,
@@ -315,7 +315,7 @@ export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
           </div>
           <div className="flex gap-6 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/60">
             <Link to="/" className="transition hover:text-white">Shop</Link>
-            <button onClick={onAdminClick} className="transition hover:text-white">Admin</button>
+            <Link to="/checkout" className="transition hover:text-white">Checkout</Link>
           </div>
           <p className="text-[10px] uppercase tracking-[0.15em] text-white/35">
             {settings.footer_copyright}
@@ -333,7 +333,6 @@ export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
           qty: line.qty,
         }))}
         onClose={() => setCartOpen(false)}
-        onCheckout={() => showToast('Checkout coming soon — your bag is saved')}
         onRemove={removeFromCart}
         onSetQty={setQty}
         open={cartOpen}

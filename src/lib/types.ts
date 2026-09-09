@@ -41,7 +41,9 @@ export type Product = {
   price: string;
   color: string;
   badge: string | null;
-  image_url: string;
+  description: string;
+  /** Multiple photos per product — first is the cover. */
+  images: string[];
   sort_order: number;
   is_visible: boolean;
 };

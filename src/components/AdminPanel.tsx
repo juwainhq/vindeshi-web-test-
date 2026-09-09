@@ -1,6 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  FileDown,
+  ImagePlus,
   Loader2,
   LogOut,
   Package,
@@ -23,9 +27,12 @@ import {
   createTestimonial,
   updateTestimonial,
   deleteTestimonial,
+  importCatalog,
 } from '../lib/useSiteContent';
 import type { SiteSettings, Product, Collection, Testimonial } from '../lib/types';
 import { ImageUploader } from './ImageUploader';
+import { uploadImage } from '../lib/upload';
+import { CATALOG } from '../data/products';
 
 type Tab = 'brand' | 'hero' | 'features' | 'shop' | 'story' | 'testimonials' | 'products' | 'collections';
 
@@ -104,7 +111,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         {tab === 'shop' && <ShopEditor settings={content.settings} />}
         {tab === 'story' && <StoryEditor settings={content.settings} />}
         {tab === 'testimonials' && <TestimonialsEditor testimonials={content.testimonials} settings={content.settings} />}
-        {tab === 'products' && <ProductsEditor products={content.products} />}
+        {tab === 'products' && <ProductsEditor products={content.products} reload={reload} />}
         {tab === 'collections' && <CollectionsEditor collections={content.collections} />}
       </div>
     </div>
@@ -452,10 +459,146 @@ function TestimonialsEditor({
 }
 
 // ── Products editor ────────────────────────────────────────────
-function ProductsEditor({ products }: { products: Product[] }) {
+// ── Multi-image editor for a product's photo list ──────────────
+function ImagesEditor({
+  images,
+  onChange,
+}: {
+  images: string[];
+  onChange: (images: string[]) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const setAt = (index: number, url: string) => {
+    onChange(images.map((image, i) => (i === index ? url : image)));
+  };
+
+  const addImage = (url: string) => {
+    onChange([...images, url]);
+  };
+
+  const removeAt = (index: number) => {
+    onChange(images.filter((_, i) => i !== index));
+  };
+
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= images.length) return;
+    const next = [...images];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  const handleFiles = async (files: FileList) => {
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const url = await uploadImage(file);
+        addImage(url);
+      }
+    } catch {
+      setError('Some uploads failed. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-black/50">
+        Photos ({images.length}) — first photo is the cover
+      </p>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files && files.length > 0) void handleFiles(files);
+          e.target.value = '';
+        }}
+      />
+
+      <div className="flex flex-wrap gap-3">
+        {images.map((image, i) => (
+          <div key={image + i} className="w-32">
+            <div className="h-32 w-32 overflow-hidden rounded-lg border border-black/10 bg-[#e9e9e5]">
+              <img src={image} alt="" className="h-full w-full object-cover" />
+            </div>
+            <input
+              type="text"
+              value={image}
+              onChange={(e) => setAt(i, e.target.value)}
+              placeholder="Image URL"
+              className="mt-1.5 w-32 rounded border border-black/15 px-1.5 py-1 text-[10px] outline-none focus:border-[#a05a39]"
+            />
+            <div className="mt-1.5 flex items-center justify-between">
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  aria-label="Move photo earlier"
+                  onClick={() => move(i, -1)}
+                  disabled={i === 0}
+                  className="rounded border border-black/15 px-1.5 py-1 text-black/50 transition hover:text-black disabled:opacity-30"
+                >
+                  <ChevronLeft size={12} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move photo later"
+                  onClick={() => move(i, 1)}
+                  disabled={i === images.length - 1}
+                  className="rounded border border-black/15 px-1.5 py-1 text-black/50 transition hover:text-black disabled:opacity-30"
+                >
+                  <ChevronRight size={12} />
+                </button>
+              </div>
+              <button
+                type="button"
+                aria-label="Remove photo"
+                onClick={() => removeAt(i)}
+                className="rounded border border-red-300 px-1.5 py-1 text-red-500 transition hover:bg-red-50"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+            {i === 0 && (
+              <p className="mt-1 text-center text-[9px] font-bold uppercase tracking-wide text-[#a05a39]">Cover</p>
+            )}
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="flex h-32 w-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-black/25 text-black/40 transition hover:border-[#a05a39] hover:text-[#a05a39] disabled:opacity-50"
+        >
+          {uploading ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
+          <span className="text-[10px] font-semibold uppercase tracking-wide">
+            {uploading ? 'Uploading…' : 'Add photos'}
+          </span>
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+// ── Products editor ────────────────────────────────────────────
+function ProductsEditor({ products, reload }: { products: Product[]; reload: () => Promise<void> }) {
   const [items, setItems] = useState<Product[]>(products);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setItems(products);
@@ -475,7 +618,8 @@ function ProductsEditor({ products }: { products: Product[] }) {
         price: product.price,
         color: product.color,
         badge: product.badge,
-        image_url: product.image_url,
+        description: product.description,
+        images: product.images,
         sort_order: product.sort_order,
         is_visible: product.is_visible,
       });
@@ -509,7 +653,8 @@ function ProductsEditor({ products }: { products: Product[] }) {
         price: '0',
         color: 'Black',
         badge: null,
-        image_url: '/images/20260718_160025.jpg',
+        description: '',
+        images: ['/images/20260718_160025.jpg'],
         sort_order: items.length,
         is_visible: true,
       });
@@ -521,25 +666,50 @@ function ProductsEditor({ products }: { products: Product[] }) {
     }
   };
 
+  const importCatalogFile = async () => {
+    setImporting(true);
+    setImportMessage(null);
+    setError(null);
+    try {
+      await importCatalog(CATALOG);
+      await reload();
+      setImportMessage('Catalog imported.');
+    } catch {
+      setImportMessage('Import failed — please try again.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-black/50">{items.length} product{items.length !== 1 ? 's' : ''}</p>
-        <button
-          onClick={() => void addNew()}
-          disabled={busy === 'new'}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
-        >
-          <Plus size={14} /> Add product
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => void importCatalogFile()}
+            disabled={importing}
+            className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-4 py-2 text-xs font-bold uppercase tracking-wide transition hover:bg-black/5 disabled:opacity-50"
+          >
+            {importing ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+            Import catalog file
+          </button>
+          <button
+            onClick={() => void addNew()}
+            disabled={busy === 'new'}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
+          >
+            <Plus size={14} /> Add product
+          </button>
+        </div>
       </div>
 
+      {importMessage && <p className="text-xs font-semibold text-[#a05a39]">{importMessage}</p>}
       {error && <p className="text-xs text-red-600">{error}</p>}
 
       {items.map((product) => (
-        <div key={product.id} className="rounded-xl border border-black/10 bg-white p-5">
+        <div key={product.id} className="space-y-4 rounded-xl border border-black/10 bg-white p-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <ImageUploader label="Product image" value={product.image_url} onChange={(v) => update(product.id, { image_url: v })} />
             <div className="space-y-3">
               <Field label="Name" value={product.name} onChange={(v) => update(product.id, { name: v })} />
               <div className="grid grid-cols-2 gap-3">
@@ -561,6 +731,7 @@ function ProductsEditor({ products }: { products: Product[] }) {
                 <Field label="Color" value={product.color} onChange={(v) => update(product.id, { color: v })} />
                 <Field label="Badge (optional)" value={product.badge ?? ''} onChange={(v) => update(product.id, { badge: v || null })} />
               </div>
+              <Field label="Description" value={product.description} onChange={(v) => update(product.id, { description: v })} textarea />
               <label className="flex items-center gap-2 pt-1">
                 <input
                   type="checkbox"
@@ -571,8 +742,12 @@ function ProductsEditor({ products }: { products: Product[] }) {
                 <span className="text-xs font-medium">Visible on storefront</span>
               </label>
             </div>
+            <ImagesEditor
+              images={product.images}
+              onChange={(images) => update(product.id, { images })}
+            />
           </div>
-          <div className="mt-4 flex items-center gap-3 border-t border-black/10 pt-4">
+          <div className="flex items-center gap-3 border-t border-black/10 pt-4">
             <button
               onClick={() => void saveOne(product)}
               disabled={busy === product.id}

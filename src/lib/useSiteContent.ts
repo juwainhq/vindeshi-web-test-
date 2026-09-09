@@ -16,7 +16,7 @@ const SETTINGS_KEYS = [
   'testimonials_eyebrow', 'testimonials_title',
 ].join(', ');
 
-const PRODUCT_KEYS = 'id, name, category, price, color, badge, image_url, sort_order, is_visible';
+const PRODUCT_KEYS = 'id, name, category, price, color, badge, description, images, sort_order, is_visible';
 const COLLECTION_KEYS = 'id, eyebrow, title, image_url, sort_order';
 const TESTIMONIAL_KEYS = 'id, quote, name, role, sort_order, is_visible';
 
@@ -85,6 +85,31 @@ export async function createProduct(product: Omit<Product, 'id'>): Promise<Produ
   if (error) throw error;
   if (!data) throw new Error('Could not create product.');
   return data as unknown as Product;
+}
+
+/**
+ * Replaces the live store with the catalog from src/data/products.ts.
+ * Deletes everything in the products table, then inserts the catalog
+ * with fresh database ids.
+ */
+export async function importCatalog(catalog: Product[]): Promise<void> {
+  const { error: deleteError } = await supabase.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  if (deleteError) throw deleteError;
+
+  const rows = catalog.map((p) => ({
+    name: p.name,
+    category: p.category,
+    price: p.price,
+    color: p.color,
+    badge: p.badge,
+    description: p.description,
+    images: p.images,
+    sort_order: p.sort_order,
+    is_visible: p.is_visible,
+  }));
+
+  const { error: insertError } = await supabase.from('products').insert(rows);
+  if (insertError) throw insertError;
 }
 
 export async function updateProduct(id: string, patch: Partial<Product>): Promise<void> {

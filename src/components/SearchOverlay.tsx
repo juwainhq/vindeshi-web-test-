@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowRight, X } from 'lucide-react';
 import type { Product } from '../lib/types';
 
@@ -6,12 +7,10 @@ export function SearchOverlay({
   open,
   products,
   onClose,
-  onSelect,
 }: {
   open: boolean;
   products: Product[];
   onClose: () => void;
-  onSelect: (product: Product) => void;
 }) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -96,18 +95,16 @@ export function SearchOverlay({
             <ul className="divide-y divide-black/10">
               {results.map((product) => (
                 <li key={product.id}>
-                  <button
+                  <Link
                     className="group flex w-full items-center gap-4 py-4 text-left transition hover:bg-black/[0.03]"
-                    onClick={() => {
-                      onSelect(product);
-                      onClose();
-                    }}
+                    to={`/product/${product.id}`}
+                    onClick={onClose}
                   >
                     <div className="h-16 w-14 shrink-0 overflow-hidden bg-[#e9e9e5]">
                       <img
                         alt={product.name}
                         className="h-full w-full object-cover object-[center_42%]"
-                        src={product.image_url}
+                        src={product.images[0]}
                       />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -121,7 +118,7 @@ export function SearchOverlay({
                       className="shrink-0 text-black/30 transition group-hover:translate-x-1 group-hover:text-[#a05a39]"
                       size={16}
                     />
-                  </button>
+                  </Link>
                 </li>
               ))}
             </ul>

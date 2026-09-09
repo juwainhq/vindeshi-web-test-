@@ -1,4 +1,5 @@
 import { createElement, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   ChevronDown,
@@ -17,50 +18,42 @@ import type { SiteSettings, Product } from '../lib/types';
 import { Reveal } from './Reveal';
 import { CartDrawer } from './CartDrawer';
 import { SearchOverlay } from './SearchOverlay';
-import { Toast, type ToastState } from './Toast';
+import { Toast } from './Toast';
+import { useCart } from '../lib/cart-context';
 
 const FEATURE_ICONS = [Truck, Sparkles, Heart] as const;
 
 type Category = 'All' | 'Women' | 'Men' | 'Travel';
-type CartLine = { product: Product; qty: number };
 
 const CATEGORIES: Category[] = ['All', 'Women', 'Men', 'Travel'];
 
 export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
   const { content, loading, error } = useSiteContent();
+  const {
+    cart,
+    cartCount,
+    cartOpen,
+    searchOpen,
+    toast,
+    addToCart,
+    setQty,
+    removeFromCart,
+    setCartOpen,
+    setSearchOpen,
+    showToast,
+  } = useCart();
+
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [cartOpen, setCartOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [likedProducts, setLikedProducts] = useState<string[]>([]);
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
-  const [toast, setToast] = useState<ToastState>(null);
   const [showTop, setShowTop] = useState(false);
-
-  const showToast = (message: string) => {
-    setToast({ message, key: Date.now() });
-  };
-
-  const addToCart = (product: Product) => {
-    setCart((current) => {
-      const existing = current.find((line) => line.product.id === product.id);
-      if (existing) {
-        return current.map((line) =>
-          line.product.id === product.id ? { ...line, qty: line.qty + 1 } : line
-        );
-      }
-      return [...current, { product, qty: 1 }];
-    });
-    showToast(`${product.name} added to your bag`);
-  };
 
   const settings: SiteSettings | null = content?.settings ?? null;
   const products: Product[] = content?.products ?? [];
   const collections = content?.collections ?? [];
   const testimonials = content?.testimonials ?? [];
-  const cartCount = cart.reduce((sum, line) => sum + line.qty, 0);
 
   const featureData = [
     { title: settings?.feature1_title ?? '', text: settings?.feature1_text ?? '' },
@@ -76,18 +69,13 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  useEffect(() => {
-    document.body.style.overflow = cartOpen || searchOpen ? 'hidden' : '';
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [cartOpen, searchOpen]);
-
   const filteredProducts = useMemo(
     () =>
       activeCategory === 'All'
-        ? products.filter((p) => p.is_visible)
-        : products.filter((p) => p.category === activeCategory && p.is_visible),
+        ? products.filter((p) => p.is_visible && p.images.length > 0)
+        : products.filter(
+            (p) => p.category === activeCategory && p.is_visible && p.images.length > 0
+          ),
     [products, activeCategory]
   );
 
@@ -99,28 +87,12 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
     );
   };
 
-  const setQty = (id: string, qty: number) => {
-    setCart((current) =>
-      qty <= 0
-        ? current.filter((line) => line.product.id !== id)
-        : current.map((line) => (line.product.id === id ? { ...line, qty } : line))
-    );
-  };
-
-  const removeFromCart = (id: string) => {
-    setCart((current) => current.filter((line) => line.product.id !== id));
-  };
-
   const handleSubscribe = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (email.trim()) {
       setSubscribed(true);
       showToast('Welcome to the Vindeshi list');
     }
-  };
-
-  const handleCheckout = () => {
-    showToast('Checkout coming soon — your bag is saved');
   };
 
   if (loading) {
@@ -291,11 +263,31 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
           ) : (
             <div className="grid gap-x-5 gap-y-12 sm:grid-cols-2 lg:grid-cols-4">
               {filteredProducts.map((product, index) => (
-                <Reveal delay={(index % 4) * 80} key={product.id}>
+                <Reveal delay={(index % 4) * 90} key={product.id}>
                   <article className="group">
                     <div className="relative aspect-square overflow-hidden bg-[#e9e9e5]">
-                      <img className="h-full w-full object-cover object-[center_42%] grayscale-[12%] transition duration-700 group-hover:scale-105" src={product.image_url} alt={product.name} />
-                      {product.badge && <span className="absolute left-3 top-3 bg-[#f7f7f5] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em]">{product.badge}</span>}
+                      <Link to={`/product/${product.id}`}>
+                        <img
+                          className="h-full w-full object-cover object-[center_42%] grayscale-[12%] transition duration-700 group-hover:scale-105"
+                          src={product.images[0]}
+                          alt={product.name}
+                        />
+                      </Link>
+                      {product.images.length > 1 && (
+                        <div className="absolute bottom-3 left-3 flex gap-1.5">
+                          {product.images.slice(0, 3).map((image, i) => (
+                            <span
+                              key={image + i}
+                              className={`h-1.5 w-1.5 rounded-full ${i === 0 ? 'bg-[#f7f7f5]' : 'bg-[#f7f7f5]/40'}`}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {product.badge && (
+                        <span className="absolute left-3 top-3 bg-[#f7f7f5] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em]">
+                          {product.badge}
+                        </span>
+                      )}
                       <button
                         aria-label={`Save ${product.name}`}
                         className="absolute right-3 top-3 rounded-full bg-[#f7f7f5]/90 p-2 transition hover:bg-white"
@@ -312,7 +304,11 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
                     </div>
                     <div className="flex items-start justify-between pt-4">
                       <div>
-                        <h3 className="text-sm font-semibold">{product.name}</h3>
+                        <h3 className="text-sm font-semibold">
+                          <Link to={`/product/${product.id}`} className="transition hover:text-[#a05a39]">
+                            {product.name}
+                          </Link>
+                        </h3>
                         <p className="mt-1 text-xs text-black/45">{product.color} · {product.category}</p>
                       </div>
                       <p className="text-sm font-semibold">Tk {product.price}</p>
@@ -385,7 +381,7 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
             ) : (
               <div className="grid gap-5 md:grid-cols-3">
                 {testimonialData.map((t, index) => (
-                  <Reveal delay={index * 120} key={t.name}>
+                  <Reveal delay={index * 120} key={t.id}>
                     <figure className="flex h-full flex-col bg-[#f7f7f5] p-8 shadow-[0_10px_30px_rgba(0,0,0,0.05)]">
                       <Quote className="mb-5 text-[#a05a39]/60" size={26} strokeWidth={1.5} />
                       <blockquote className="flex-1 font-serif text-lg leading-8 tracking-[-0.01em] text-black/80">
@@ -443,11 +439,11 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
           name: line.product.name,
           color: line.product.color,
           price: line.product.price,
-          image_url: line.product.image_url,
+          image_url: line.product.images[0],
           qty: line.qty,
         }))}
         onClose={() => setCartOpen(false)}
-        onCheckout={handleCheckout}
+        onCheckout={() => showToast('Checkout coming soon — your bag is saved')}
         onRemove={removeFromCart}
         onSetQty={setQty}
         open={cartOpen}
@@ -455,10 +451,6 @@ export function Storefront({ onAdminClick }: { onAdminClick: () => void }) {
 
       <SearchOverlay
         onClose={() => setSearchOpen(false)}
-        onSelect={(product) => {
-          addToCart(product);
-          setCartOpen(true);
-        }}
         open={searchOpen}
         products={products}
       />

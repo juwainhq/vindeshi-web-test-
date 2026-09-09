@@ -36,7 +36,7 @@ export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
   const productId = pathname.split('/').pop() ?? '';
 
   const [activeImage, setActiveImage] = useState(0);
-  const [qty, setQty] = useState(1);
+  const [qty, setQtyState] = useState(1);
   const [liked, setLiked] = useState(false);
 
   const product = useMemo(
@@ -55,7 +55,7 @@ export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
   useEffect(() => {
     window.scrollTo(0, 0);
     setActiveImage(0);
-    setQty(1);
+    setQtyState(1);
   }, [productId]);
 
   if (loading) {
@@ -219,7 +219,7 @@ export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
                   aria-label="Decrease quantity"
                   className="px-3.5 py-3 transition hover:text-[#a05a39] disabled:opacity-30"
                   disabled={qty <= 1}
-                  onClick={() => setQty((q) => Math.max(1, q - 1))}
+                  onClick={() => setQtyState((q) => Math.max(1, q - 1))}
                 >
                   <Minus size={14} />
                 </button>
@@ -227,7 +227,7 @@ export function ProductPage({ onAdminClick }: { onAdminClick: () => void }) {
                 <button
                   aria-label="Increase quantity"
                   className="px-3.5 py-3 transition hover:text-[#a05a39]"
-                  onClick={() => setQty((q) => q + 1)}
+                  onClick={() => setQtyState((q) => q + 1)}
                 >
                   <Plus size={14} />
                 </button>

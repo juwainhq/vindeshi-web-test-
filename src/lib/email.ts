@@ -1,5 +1,5 @@
 import emailjs from '@emailjs/browser';
-import type { Order } from './local-store';
+import type { Order } from './orders';
 
 /**
  * EmailJS order notifications (free tier: 200 emails/month).
@@ -18,7 +18,7 @@ import type { Order } from './local-store';
  *  5. Fill in the three constants below.
  *
  * Until configured, emails are skipped silently — orders still save to
- * the shared cloud store either way.
+ * the Supabase orders table either way.
  */
 
 const EMAILJS_SERVICE_ID = ''; // e.g. 'service_xxxxxxx'
@@ -49,10 +49,9 @@ export async function sendOrderNotification(order: Order): Promise<void> {
       customer_phone: order.phone,
       delivery_address: order.address,
       payment_method: order.paymentMethod,
+      bkash_number: order.bkashNumber || '—',
       transaction_id: order.transactionId || '—',
       items_ordered: itemsList,
-      subtotal: formatTk(order.subtotal),
-      delivery_fee: order.deliveryFee === 0 ? 'Free' : formatTk(order.deliveryFee),
       total: formatTk(order.total),
     },
     { publicKey: EMAILJS_PUBLIC_KEY }

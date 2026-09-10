@@ -1,11 +1,5 @@
+import { supabase } from './supabase';
 import type { Product } from './types';
-import {
-  getOrders,
-  saveOrders,
-  type Order,
-  type OrderItem,
-  type OrderStatus,
-} from './local-store';
 
 /* ── Pricing (kept in sync with the checkout summary) ────────── */
 
@@ -14,9 +8,42 @@ const DELIVERY_FEE = 80;
 
 const toNumber = (price: string) => Number(price.replace(/[^0-9.]/g, '')) || 0;
 
+/* ── Order types ─────────────────────────────────────────────── */
+
+export type OrderStatus = 'Pending' | 'Completed' | 'Cancelled';
+
+export type OrderItem = {
+  id: string;
+  name: string;
+  color: string;
+  price: string;
+  image_url: string;
+  qty: number;
+};
+
+export type Order = {
+  id: string;
+  createdAt: string;
+  customerName: string;
+  email: string;
+  phone: string;
+  address: string;
+  paymentMethod: string;
+  /** bKash / Rocket account number the payment was sent from. */
+  bkashNumber?: string;
+  /** TrxID for bKash / Rocket payments, when provided. */
+  transactionId?: string;
+  items: OrderItem[];
+  /** The amount the customer pays (items + delivery). */
+  total: number;
+  status: OrderStatus;
+};
+
 /* ── Order builder ──────────────────────────────────────────── */
 
-/** Assemble a complete order from the cart and checkout details. */
+/** Assemble a complete order from the cart and checkout details.
+ *  The id is a temporary display value — insertOrder returns the real
+ *  database-assigned id once the row is saved. */
 export function buildOrder(
   cart: { product: Product; qty: number }[],
   customer: {
@@ -25,6 +52,7 @@ export function buildOrder(
     phone: string;
     address: string;
     paymentMethod: string;
+    bkashNumber?: string;
     transactionId?: string;
   }
 ): Order {
@@ -46,184 +74,14 @@ export function buildOrder(
     createdAt: new Date().toISOString(),
     ...customer,
     items,
-    subtotal,
-    deliveryFee,
     total: subtotal + deliveryFee,
     status: 'Pending',
   };
 }
 
-/* ── Shared cloud store (jsonblob.com) ──────────────────────── */
-
-/**
- * Every order — from any device — lives in ONE shared JSON document
- * ("blob") on jsonblob.com: a free, keyless JSON storage API with no
- * accounts and no API keys. The blob ID is the only "credential":
- * anyone who has it can read or write the document, so treat it as
- * semi-private.
- *
- * One-time setup (see SETUP.md):
- *  1. /admin → Orders → "Create cloud store" (or create a blob at
- *     jsonblob.com containing {"orders": []}).
- *  2. Paste the ID into ORDERS_BLOB_ID below and rebuild/redeploy —
- *     every visitor's checkout then saves to the same shared store.
- * Admin browsers can also link the ID locally (no rebuild needed)
- * from the same setup panel.
- */
-const ORDERS_BLOB_ID = '01a08b1a-ca5b-75ab-9e81-a8d507e1db42'; // your shared cloud store
-
-/** Blob ID saved on this browser by the admin setup panel. */
-const BLOB_ID_KEY = 'vindeshi_orders_blob_id';
-
-const API_BASE = 'https://jsonblob.com/api/jsonBlob';
-const REQUEST_TIMEOUT_MS = 12000;
-
-/* ── Rate limiting (HTTP 429) ────────────────────────────────── */
-
-/** Pause before retrying after a 429 — the store's limit window is short. */
-const RATE_LIMIT_RETRY_MS = 31000;
-/** Attempts per operation before giving up (first try + 2 retries). */
-const RATE_LIMIT_ATTEMPTS = 3;
-
-/** Cloud store error carrying the HTTP status, so callers can react
- *  to rate limits (429) specifically instead of crashing generically. */
-export class CloudError extends Error {
-  readonly status?: number;
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = 'CloudError';
-    this.status = status;
-  }
-}
-
-/** True when an error came from the cloud store rate limiting us (429). */
-export function isRateLimitError(err: unknown): boolean {
-  return err instanceof CloudError && err.status === 429;
-}
-
-/** Wait `ms` milliseconds. */
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/** Run a cloud request, automatically retrying after rate limits.
- *  Checkouts are far apart, so waiting out the limit window — instead
- *  of failing — keeps every order safely stored. */
-async function retryOnRateLimit<T>(operation: () => Promise<T>): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= RATE_LIMIT_ATTEMPTS; attempt++) {
-    try {
-      return await operation();
-    } catch (err) {
-      lastError = err;
-      if (!isRateLimitError(err) || attempt === RATE_LIMIT_ATTEMPTS) throw err;
-      await delay(RATE_LIMIT_RETRY_MS);
-    }
-  }
-  throw lastError; // unreachable — kept for TypeScript
-}
-
-function readLocalBlobId(): string | null {
-  try {
-    const id = localStorage.getItem(BLOB_ID_KEY);
-    return id && id.trim() ? id.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveLocalBlobId(id: string): void {
-  try {
-    localStorage.setItem(BLOB_ID_KEY, id);
-  } catch {
-    // storage unavailable — this browser just can't save the link
-  }
-}
-
-/** Last non-empty path segment of a URL (the blob ID in jsonblob URLs). */
-function lastSegment(value: string | null): string | null {
-  if (!value) return null;
-  const segment = value.split('?')[0].split('/').filter(Boolean).pop();
-  return segment && segment.trim() ? segment.trim() : null;
-}
-
-/** Aborts a request that hangs, so checkouts never stall forever. */
-function timeoutSignal(ms: number): AbortSignal {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), ms);
-  return controller.signal;
-}
-
-async function request(path: string, init: RequestInit = {}): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-  return fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    signal: timeoutSignal(REQUEST_TIMEOUT_MS),
-  });
-}
-
-/** The shared store's blob ID: this browser's saved link wins, else the
- *  ID baked into the build (so customers' devices find the store). */
-export function getOrdersBlobId(): string | null {
-  return readLocalBlobId() ?? (ORDERS_BLOB_ID.trim() || null);
-}
-
-/** True when the store ID is baked into the build — meaning every
- *  device, including customer checkouts, reaches the shared store. */
-export function isOrdersBlobBakedIn(): boolean {
-  return ORDERS_BLOB_ID.trim() !== '';
-}
-
-/** Create the shared orders document and link this browser to it.
- *  Returns the new blob ID. */
-export async function createOrdersStore(): Promise<string> {
-  const res = await request('', {
-    method: 'POST',
-    body: JSON.stringify({ orders: [] }),
-  });
-  if (res.status === 429) {
-    throw new Error('Rate limit reached — wait about 30 seconds and try again.');
-  }
-  if (!res.ok) throw new Error(`jsonblob responded with ${res.status}.`);
-  const id = res.headers.get('X-jsonblob') ?? lastSegment(res.headers.get('Location'));
-  if (!id) {
-    throw new Error(
-      "Couldn't read the new store ID from the response. Create the blob manually at jsonblob.com (paste {\"orders\": []}) and link it below instead."
-    );
-  }
-  saveLocalBlobId(id);
-  return id;
-}
-
-/** Link this browser to an existing store by ID or jsonblob URL.
- *  Validates that the blob exists before saving. */
-export async function linkOrdersStore(input: string): Promise<string> {
-  const id = lastSegment(input);
-  if (!id) throw new Error('Paste the store ID or its jsonblob.com URL.');
-  const res = await request(`/${encodeURIComponent(id)}`, { method: 'GET' });
-  if (res.status === 404) throw new Error('No cloud store exists with that ID.');
-  if (res.status === 429) {
-    throw new Error('Rate limit reached — wait about 30 seconds and try again.');
-  }
-  if (!res.ok) throw new Error(`jsonblob responded with ${res.status}.`);
-  saveLocalBlobId(id);
-  return id;
-}
-
-/** Forget this browser's saved store link. The baked-in constant, if
- *  any, still applies. */
-export function unlinkOrdersStore(): void {
-  try {
-    localStorage.removeItem(BLOB_ID_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-/* ── Defensive parsing (the store is publicly writable) ──────── */
+/* ── Defensive parsing (rows come from the network) ──────────── */
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : '');
-const asNumber = (v: unknown) => Number(v) || 0;
 
 function normalizeItem(raw: unknown): OrderItem {
   const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
@@ -233,135 +91,74 @@ function normalizeItem(raw: unknown): OrderItem {
     color: asString(r.color),
     price: asString(r.price) || '0',
     image_url: asString(r.image_url),
-    qty: asNumber(r.qty) || 1,
+    qty: Number(r.qty) || 1,
   };
 }
 
-function normalizeOrder(raw: unknown): Order | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.id !== 'string' || r.id === '') return null;
-  const status: OrderStatus =
-    r.status === 'Completed' || r.status === 'Cancelled'
-      ? (r.status as OrderStatus)
+/** Map a database row to the app's Order shape. Extra columns are
+ *  ignored; missing ones fall back to safe defaults. */
+function rowToOrder(row: Record<string, unknown>): Order {
+  const status =
+    row.status === 'Completed' || row.status === 'Cancelled'
+      ? (row.status as OrderStatus)
       : 'Pending';
   return {
-    id: r.id,
-    createdAt: asString(r.createdAt) || new Date(0).toISOString(),
-    customerName: asString(r.customerName),
-    email: asString(r.email),
-    phone: asString(r.phone),
-    address: asString(r.address),
-    paymentMethod: asString(r.paymentMethod) || 'Cash on Delivery',
-    transactionId: asString(r.transactionId) || undefined,
-    items: Array.isArray(r.items) ? r.items.map(normalizeItem) : [],
-    subtotal: asNumber(r.subtotal),
-    deliveryFee: asNumber(r.deliveryFee),
-    total: asNumber(r.total) || asNumber(r.subtotal),
+    id: String(row.id ?? ''),
+    createdAt: asString(row.created_at) || new Date(0).toISOString(),
+    customerName: asString(row.customer_name),
+    email: asString(row.email), // not stored by the current schema
+    phone: asString(row.customer_phone),
+    address: asString(row.customer_address),
+    paymentMethod: asString(row.payment_method) || 'Cash on Delivery',
+    bkashNumber: asString(row.bkash_number) || undefined,
+    transactionId: asString(row.bkash_trxid) || undefined,
+    items: Array.isArray(row.items) ? row.items.map(normalizeItem) : [],
+    total: Number(row.total_price) || 0,
     status,
-  } satisfies Order;
+  };
 }
 
-/** Replace the whole shared document with the given order list. */
-async function putOrders(orders: Order[]): Promise<void> {
-  const id = getOrdersBlobId();
-  if (!id) throw new Error('No cloud store configured yet.');
-  const res = await request(`/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    body: JSON.stringify({ orders }),
-  });
-  if (res.status === 404) {
-    throw new CloudError('The cloud store no longer exists (404).', 404);
-  }
-  if (res.status === 429) {
-    throw new CloudError('Cloud store write rate limit reached (429).', 429);
-  }
-  if (!res.ok) throw new CloudError(`Cloud store write failed (${res.status}).`, res.status);
+/* ── Cloud operations (Supabase `orders` table) ───────────────── */
+
+/** Insert a new order into the Supabase `orders` table — the exact
+ *  columns: customer_name, customer_phone, customer_address,
+ *  payment_method, bkash_number, bkash_trxid, items (JSON),
+ *  total_price, status. `id` and `created_at` are assigned by the
+ *  database. Returns the database-assigned id, or null if it couldn't
+ *  be read back (the row is still saved). */
+export async function insertOrder(order: Order): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('orders')
+    .insert({
+      customer_name: order.customerName,
+      customer_phone: order.phone,
+      customer_address: order.address,
+      payment_method: order.paymentMethod,
+      bkash_number: order.bkashNumber ?? null,
+      bkash_trxid: order.transactionId ?? null,
+      items: order.items,
+      total_price: order.total,
+      status: order.status,
+    })
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  return data ? String((data as { id: unknown }).id) : null;
 }
 
-/** putOrders with automatic 429 retries — order writes can wait out a
- *  rate limit, so they never fail (and never drop an order). */
-async function putOrdersWithRetry(orders: Order[]): Promise<void> {
-  await retryOnRateLimit(() => putOrders(orders));
-}
-
-/* ── Cloud operations ────────────────────────────────────────── */
-
-/** Fetch every order from the shared cloud store — checkouts from any
- *  device, newest first. Accepts both `{"orders":[…]}` and bare `[…]`
- *  document shapes. */
+/** Fetch all orders from the cloud database, newest first — every
+ *  order placed from any device, in one list. */
 export async function fetchOrders(): Promise<Order[]> {
-  const id = getOrdersBlobId();
-  if (!id) throw new Error('No cloud store configured yet.');
-  // Reads retry automatically after a 429, so a manual refresh
-  // recovers on its own once the limit window passes.
-  const res = await retryOnRateLimit(async () => {
-    const r = await request(`/${encodeURIComponent(id)}`, { method: 'GET' });
-    if (r.status === 429) {
-      throw new CloudError('Cloud store rate limit reached (429).', 429);
-    }
-    return r;
-  });
-  if (res.status === 404) {
-    throw new CloudError(
-      'The cloud store no longer exists (404) — link a new one from the admin Orders tab.',
-      404
-    );
-  }
-  if (!res.ok) throw new CloudError(`Cloud store responded with ${res.status}.`, res.status);
-
-  const data: unknown = await res.json();
-  const list = Array.isArray(data)
-    ? data
-    : Array.isArray((data as { orders?: unknown[] } | null)?.orders)
-      ? (data as { orders: unknown[] }).orders
-      : [];
-
-  return list
-    .map(normalizeOrder)
-    .filter((o): o is Order => o !== null)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map(rowToOrder);
 }
 
-/** Save a new order to the shared cloud store (called from checkout).
- *  Merges into the current list so orders placed elsewhere are kept. */
-export async function insertOrder(order: Order): Promise<void> {
-  // The GET retries on 429 by itself, and the write goes through the
-  // retry helper too — so checkout saves the order no matter what.
-  const current = await fetchOrders();
-  await putOrdersWithRetry([order, ...current.filter((o) => o.id !== order.id)]);
-}
-
-/** Update an order's status in the shared store (admin panel). */
-export async function updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
-  const current = await fetchOrders();
-  if (!current.some((o) => o.id === orderId)) {
-    throw new Error('Order not found in the cloud store.');
-  }
-  await putOrdersWithRetry(current.map((o) => (o.id === orderId ? { ...o, status } : o)));
-}
-
-/** One-time upload of orders saved in this browser's localStorage
- *  (placed while offline, or before the store was linked). Orders
- *  already in the cloud are skipped; failures stay on this device. */
-export async function migrateLegacyOrders(): Promise<{ uploaded: number; failed: number }> {
-  const legacy = getOrders();
-  if (legacy.length === 0) return { uploaded: 0, failed: 0 };
-
-  const cloud = await fetchOrders();
-  const existing = new Set(cloud.map((o) => o.id));
-  const pending = legacy.filter((o) => !existing.has(o.id));
-  if (pending.length === 0) {
-    saveOrders([]); // everything is already in the cloud
-    return { uploaded: 0, failed: 0 };
-  }
-
-  try {
-    await putOrdersWithRetry([...pending, ...cloud]);
-  } catch {
-    return { uploaded: 0, failed: pending.length };
-  }
-
-  saveOrders([]); // uploaded — nothing needs to stay on this device
-  return { uploaded: pending.length, failed: 0 };
+/** Update an order's status in the cloud database (admin panel). */
+export async function updateOrderStatus(id: string, status: OrderStatus): Promise<void> {
+  const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+  if (error) throw error;
 }

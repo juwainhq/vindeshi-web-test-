@@ -11,9 +11,8 @@ import {
 } from 'lucide-react';
 import { useSiteContent } from '../lib/useSiteContent';
 import { useCart } from '../lib/cart-context';
-import { buildOrder, insertOrder } from '../lib/orders';
+import { buildOrder, insertOrder, type Order } from '../lib/orders';
 import { sendOrderNotification } from '../lib/email';
-import { addOrder, type Order } from '../lib/local-store';
 
 const PAYMENT_METHODS = [
   { id: 'Cash on Delivery', label: 'Cash on Delivery', hint: 'Pay when your bag arrives', icon: Banknote },
@@ -39,10 +38,11 @@ export function CheckoutPage() {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
+  const [bkashNumber, setBkashNumber] = useState('');
   const [transactionId, setTransactionId] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
-  const [savedToCloud, setSavedToCloud] = useState(true);
 
   const settings = content?.settings ?? null;
 
@@ -57,6 +57,7 @@ export function CheckoutPage() {
     event.preventDefault();
     if (cart.length === 0 || submitting) return;
     setSubmitting(true);
+    setOrderError(null);
 
     const order = buildOrder(cart, {
       customerName,
@@ -64,29 +65,36 @@ export function CheckoutPage() {
       phone,
       address,
       paymentMethod,
+      bkashNumber: isMobilePayment(paymentMethod)
+        ? bkashNumber.trim() || undefined
+        : undefined,
       transactionId: isMobilePayment(paymentMethod)
         ? transactionId.trim() || undefined
         : undefined,
     });
 
-    // 1) Save to the shared cloud store (falls back to this device if offline)
-    let cloudSaved = true;
+    // 1) Insert the order directly into the Supabase `orders` table.
+    //    If it can't be saved, the customer can retry — the cart stays.
+    let saved = order;
     try {
-      await insertOrder(order);
+      const dbId = await insertOrder(order);
+      if (dbId) saved = { ...order, id: dbId }; // the database-assigned id
     } catch {
-      cloudSaved = false;
-      addOrder(order); // keep it locally so the order is never lost
+      setSubmitting(false);
+      setOrderError(
+        "We couldn't save your order — please check your connection and try again."
+      );
+      return;
     }
 
     // 2) Email the store owner (best-effort — never blocks the order)
     try {
-      await sendOrderNotification(order);
+      await sendOrderNotification(saved);
     } catch {
-      // email hiccup: order is still safely stored
+      // email hiccup: order is still safely stored in the database
     }
 
-    setSavedToCloud(cloudSaved);
-    setPlacedOrder(order);
+    setPlacedOrder(saved);
     setSubmitting(false);
     clearCart();
     window.scrollTo(0, 0);
@@ -125,20 +133,12 @@ export function CheckoutPage() {
                 {placedOrder.transactionId ? ` · TrxID ${placedOrder.transactionId}` : ''}
               </span>
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-black/50">Delivery</span>
-              <span className="font-semibold">
-                {placedOrder.deliveryFee === 0 ? 'Free' : formatTk(placedOrder.deliveryFee)}
-              </span>
-            </div>
             <div className="flex items-center justify-between border-t border-black/10 pt-4 text-sm">
               <span className="font-semibold">Total</span>
               <span className="font-semibold">{formatTk(placedOrder.total)}</span>
             </div>
             <p className="border-t border-black/10 pt-3 text-[10px] leading-4 text-black/40">
-              {savedToCloud
-                ? 'Order saved to the store cloud — we can see it instantly.'
-                : 'Order saved on this device — it syncs to the store cloud when the connection returns.'}
+              Order saved to the store database — we can see it instantly.
             </p>
           </div>
 
@@ -291,23 +291,45 @@ export function CheckoutPage() {
               </div>
             </fieldset>
 
-            {/* TrxID — only for mobile payments */}
+            {/* bKash / Rocket details — only for mobile payments */}
             {isMobilePayment(paymentMethod) && (
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-black/50">
-                  Transaction ID (TrxID) — optional
-                </span>
-                <input
-                  value={transactionId}
-                  onChange={(e) => setTransactionId(e.target.value)}
-                  placeholder="e.g. 9F7A2C81KX"
-                  className="w-full rounded-lg border border-black/15 bg-white px-3.5 py-3 font-mono text-sm uppercase outline-none transition focus:border-[#a05a39]"
-                />
-                <span className="mt-1.5 block text-[10px] text-black/40">
-                  Found in your {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} app's payment
-                  history. Helps us verify your payment faster.
-                </span>
-              </label>
+              <div className="space-y-4 rounded-xl border border-black/10 bg-white p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-black/40">
+                  {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} payment details
+                </p>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-black/50">
+                    Your {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} number — optional
+                  </span>
+                  <input
+                    value={bkashNumber}
+                    onChange={(e) => setBkashNumber(e.target.value)}
+                    placeholder="01XXXXXXXXX"
+                    className="w-full rounded-lg border border-black/15 bg-white px-3.5 py-3 text-sm outline-none transition focus:border-[#a05a39]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-black/50">
+                    Transaction ID (TrxID) — optional
+                  </span>
+                  <input
+                    value={transactionId}
+                    onChange={(e) => setTransactionId(e.target.value)}
+                    placeholder="e.g. 9F7A2C81KX"
+                    className="w-full rounded-lg border border-black/15 bg-white px-3.5 py-3 font-mono text-sm uppercase outline-none transition focus:border-[#a05a39]"
+                  />
+                  <span className="mt-1.5 block text-[10px] text-black/40">
+                    Found in your {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} app's payment
+                    history. Helps us verify your payment faster.
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {orderError && (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">
+                {orderError}
+              </p>
             )}
 
             <button

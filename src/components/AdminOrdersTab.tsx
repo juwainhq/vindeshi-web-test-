@@ -2,36 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Banknote,
-  Check,
   CheckCircle2,
   Clock,
   Cloud,
-  Copy,
   Loader2,
   RefreshCw,
   Search,
   ShoppingBag,
   Smartphone,
-  Timer,
-  UploadCloud,
   XCircle,
 } from 'lucide-react';
 import {
   fetchOrders,
-  getOrdersBlobId,
-  isOrdersBlobBakedIn,
-  isRateLimitError,
-  migrateLegacyOrders,
-  unlinkOrdersStore,
   updateOrderStatus,
-} from '../lib/orders';
-import {
-  getOrders,
-  saveOrders,
   type Order,
   type OrderStatus,
-} from '../lib/local-store';
-import { OrdersSetupPanel } from './OrdersSetupPanel';
+} from '../lib/orders';
 
 const STATUSES: OrderStatus[] = ['Pending', 'Completed', 'Cancelled'];
 
@@ -53,150 +39,91 @@ const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 type LoadState = 'loading' | 'ready' | 'error';
 
 export function AdminOrdersTab() {
-  const [blobId, setBlobId] = useState<string | null>(() => getOrdersBlobId());
   const [orders, setOrders] = useState<Order[]>([]);
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [errorText, setErrorText] = useState('');
+  const [tableMissing, setTableMissing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null); // refresh hiccup — list stays
-  const [rateLimited, setRateLimited] = useState(false); // last refresh hit a 429
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [copiedId, setCopiedId] = useState(false);
-
-  const [localOrders, setLocalOrders] = useState<Order[]>(getOrders());
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<'All' | OrderStatus>('All');
   const [search, setSearch] = useState('');
   const [statusBusy, setStatusBusy] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
 
-  // Skips refresh results while a status write is in flight so optimistic
-  // updates aren't visually reverted mid-request.
-  const writeInFlight = useRef(false);
+  /* ── Cloud fetching (on demand only — no auto-polling) ── */
+
+  // Lets the error handler ask "do we already have orders?" without
+  // depending on the orders state (which would re-create `refresh`
+  // after every fetch and re-trigger the effect).
   const ordersCountRef = useRef(0);
   useEffect(() => {
     ordersCountRef.current = orders.length;
   }, [orders]);
 
-  /* ── Cloud fetching (on demand only) ── */
-
-  const refresh = useCallback(async (quiet = true) => {
-    if (writeInFlight.current) return;
-    if (!quiet) setRefreshing(true);
+  const refresh = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setRefreshing(true);
     try {
       const rows = await fetchOrders();
       setOrders(rows);
       setLoadState('ready');
-      setRateLimited(false);
       setSyncError(null);
       setLastSyncedAt(new Date());
     } catch (err) {
-      if (isRateLimitError(err)) {
-        // Too many requests in a short window — friendly note, no crash
-        setRateLimited(true);
-        const message = 'Rate limit reached — please wait 30 seconds and click Refresh.';
-        if (ordersCountRef.current > 0) {
-          setSyncError(null); // the dedicated rate-limit banner below shows this
-        } else {
-          setLoadState('error');
-          setErrorText(message);
-        }
+      const message = err instanceof Error ? err.message : String(err);
+      const isTableMissing =
+        message.includes('PGRST205') || message.includes('does not exist');
+      if (ordersCountRef.current > 0 && !isTableMissing) {
+        // transient failure — keep showing the orders we already have
+        setSyncError(`Couldn't refresh orders: ${message}`);
       } else {
-        setRateLimited(false);
-        const message = err instanceof Error ? err.message : String(err);
-        if (ordersCountRef.current > 0) {
-          // transient failure — keep showing the orders we already have
-          setSyncError(`Couldn't refresh orders: ${message}`);
-        } else {
-          setLoadState('error');
-          setErrorText(message);
-        }
+        setLoadState('error');
+        setErrorText(message);
+        setTableMissing(isTableMissing);
       }
     } finally {
-      if (!quiet) setRefreshing(false);
+      if (showSpinner) setRefreshing(false);
     }
   }, []);
 
-  // Fetch the shared store ONCE when the tab opens (and again only if
-  // the linked store itself changes). No interval, no auto-polling —
-  // the Refresh orders button pulls new orders on demand.
+  // Fetch the orders table ONCE when this tab mounts. `refresh` is a
+  // stable callback (no state dependencies), so this effect never
+  // re-runs on state updates — no loop, no interval, no auto-polling.
+  // New orders arrive on demand via the Refresh orders button.
   useEffect(() => {
-    if (!blobId) return;
-    void refresh(false);
-  }, [blobId, refresh]);
+    void refresh();
+  }, [refresh]);
 
-  /* ── Status updates ── */
-
-  const localOnly = useMemo(
-    () => localOrders.filter((local) => !orders.some((cloud) => cloud.id === local.id)),
-    [localOrders, orders]
-  );
-
-  const isLocalOnly = (order: Order) => localOnly.some((o) => o.id === order.id);
+  /* ── Status updates (direct database writes) ── */
 
   const setStatus = async (order: Order, status: OrderStatus) => {
     if (order.status === status) return;
 
-    // Orders saved on this device (offline fallback) — update locally
-    if (isLocalOnly(order)) {
-      const next = getOrders().map((o) => (o.id === order.id ? { ...o, status } : o));
-      saveOrders(next);
-      setLocalOrders(next);
-      return;
-    }
-
-    // Cloud order — update optimistically, then persist + hard refresh
-    writeInFlight.current = true;
+    // Update optimistically, then persist to the database
     setOrders((current) =>
       current.map((o) => (o.id === order.id ? { ...o, status } : o))
     );
     setStatusBusy(order.id);
-    let failure: string | null = null;
     try {
       await updateOrderStatus(order.id, status);
+      setSyncError(null);
     } catch (err) {
-      failure = `Could not update ${order.id}: ${
-        err instanceof Error ? err.message : 'unknown error'
-      }`;
+      setSyncError(
+        `Could not update this order: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`
+      );
+      void refresh(); // revert to the database's version
     } finally {
       setStatusBusy(null);
-      writeInFlight.current = false;
-    }
-    if (failure) setSyncError(failure);
-    await refresh(false);
-  };
-
-  /* ── Legacy order upload (localStorage → cloud) ── */
-
-  const uploadLegacy = async () => {
-    setUploading(true);
-    setUploadMessage(null);
-    try {
-      const { uploaded, failed } = await migrateLegacyOrders();
-      setUploadMessage(
-        uploaded === 0 && failed === 0
-          ? 'Nothing to upload.'
-          : failed > 0
-            ? `Uploaded ${uploaded}. ${failed} couldn't be uploaded — they stay on this device to retry.`
-            : `Uploaded ${uploaded} order${uploaded === 1 ? '' : 's'} to the cloud.`
-      );
-      setLocalOrders(getOrders());
-      await refresh(false);
-    } catch {
-      setUploadMessage('Upload failed — check your connection and try again.');
-    } finally {
-      setUploading(false);
     }
   };
 
-  /* ── Combined list: cloud first, then device-only rows ── */
-
-  const allOrders = useMemo(() => [...orders, ...localOnly], [orders, localOnly]);
+  /* ── Derived list ── */
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return allOrders.filter((order) => {
+    return orders.filter((order) => {
       const matchesStatus = filter === 'All' || order.status === filter;
       const matchesSearch =
         !q ||
@@ -205,35 +132,13 @@ export function AdminOrdersTab() {
         order.phone.includes(q);
       return matchesStatus && matchesSearch;
     });
-  }, [allOrders, filter, search]);
+  }, [orders, filter, search]);
 
-  const revenue = allOrders
+  const revenue = orders
     .filter((o) => o.status !== 'Cancelled')
     .reduce((sum, o) => sum + o.total, 0);
 
-  const copyStoreId = async () => {
-    if (!blobId) return;
-    try {
-      await navigator.clipboard.writeText(blobId);
-      setCopiedId(true);
-      setTimeout(() => setCopiedId(false), 2000);
-    } catch {
-      // clipboard unavailable — copy manually from the docs
-    }
-  };
-
   /* ── Gates ── */
-
-  if (!blobId) {
-    return (
-      <OrdersSetupPanel
-        onLinked={() => {
-          setBlobId(getOrdersBlobId());
-          setLoadState('loading');
-        }}
-      />
-    );
-  }
 
   if (loadState === 'loading' && orders.length === 0) {
     return (
@@ -247,97 +152,51 @@ export function AdminOrdersTab() {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
         <AlertCircle className="mx-auto text-red-500" size={30} />
-        <p className="mt-3 font-serif text-xl">Couldn't load cloud orders</p>
-        <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-black/60">{errorText}</p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <button
-            onClick={() => void refresh(false)}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39]"
-          >
-            <RefreshCw size={13} /> Try again
-          </button>
-          {!isOrdersBlobBakedIn() && (
-            <button
-              onClick={() => {
-                unlinkOrdersStore();
-                setBlobId(null);
-              }}
-              className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]"
-            >
-              Choose another store
-            </button>
-          )}
-        </div>
+        <p className="mt-3 font-serif text-xl">
+          {tableMissing ? 'Orders table not set up yet' : "Couldn't load cloud orders"}
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-black/60">
+          {tableMissing
+            ? 'The Supabase "orders" table is missing. Run the SQL script from step 1 of SETUP.md in your Supabase SQL editor, then try again.'
+            : errorText}
+        </p>
+        <button
+          onClick={() => void refresh(true)}
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39]"
+        >
+          <RefreshCw size={13} /> Try again
+        </button>
       </div>
     );
   }
 
   /* ── Orders dashboard ── */
 
-  const shortId =
-    blobId.length > 14 ? `${blobId.slice(0, 8)}…${blobId.slice(-4)}` : blobId;
-
   return (
     <div className="space-y-5">
       {/* Status strip */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-black/10 bg-white p-4">
         <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-          <Cloud size={12} /> Cloud synced
+          <Cloud size={12} /> Cloud database
         </span>
         <p className="text-xs text-black/50">
-          Shared cloud store{' '}
-          <span className="font-mono font-semibold text-[#171717]">{shortId}</span>
-          {lastSyncedAt && <> · synced {lastSyncedAt.toLocaleTimeString('en-GB')}</>} — press{' '}
-          <span className="font-semibold text-[#171717]">Refresh orders</span> to pull orders
-          placed from any device.
+          Every order placed from any phone or computer lands in the Supabase `orders`
+          table{lastSyncedAt && <> · synced {lastSyncedAt.toLocaleTimeString('en-GB')}</>} —
+          press <span className="font-semibold text-[#171717]">Refresh orders</span> to pull
+          the latest.
         </p>
         <div className="ml-auto flex items-center gap-2">
           {refreshing && <Loader2 size={13} className="animate-spin text-black/40" />}
-
           <button
-            onClick={() => void refresh(false)}
+            onClick={() => void refresh(true)}
             disabled={refreshing}
-            title="Fetch the latest orders from the cloud store now"
+            title="Fetch the latest orders from the cloud database now"
             className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
           >
             <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} /> Refresh orders
           </button>
-          <button
-            onClick={() => void copyStoreId()}
-            title="Copy the shared store ID"
-            className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]"
-          >
-            {copiedId ? <Check size={13} /> : <Copy size={13} />} {copiedId ? 'Copied' : 'Copy ID'}
-          </button>
         </div>
       </div>
-
-      {/* Hint until the store ID is baked into the build */}
-      {!isOrdersBlobBakedIn() && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs leading-5 text-amber-800">
-          This browser is linked via its saved store ID. To make <span className="font-bold">every</span>{' '}
-          visitor's checkout save to the shared store, paste the ID into{' '}
-          <code className="font-mono">ORDERS_BLOB_ID</code> at the top of{' '}
-          <code className="font-mono">src/lib/orders.ts</code> and redeploy the app.
-        </p>
-      )}
-
-      {/* Rate-limit notice — cloud asked us to slow down, nothing is lost */}
-      {rateLimited && orders.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-          <Timer size={15} className="shrink-0 text-amber-600" />
-          <p className="text-xs font-semibold text-amber-800">
-            Rate limit reached — please wait 30 seconds and click Refresh.
-          </p>
-          <button
-            onClick={() => void refresh(false)}
-            disabled={refreshing}
-            className="ml-auto inline-flex items-center gap-2 rounded-lg bg-[#171717] px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
-          >
-            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
-          </button>
-        </div>
-      )}
 
       {syncError && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800">
@@ -349,12 +208,12 @@ export function AdminOrdersTab() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-black/10 bg-white p-5">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/40">Orders</p>
-          <p className="mt-2 font-serif text-3xl">{allOrders.length}</p>
+          <p className="mt-2 font-serif text-3xl">{orders.length}</p>
         </div>
         <div className="rounded-xl border border-black/10 bg-white p-5">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/40">Pending</p>
           <p className="mt-2 font-serif text-3xl text-amber-600">
-            {allOrders.filter((o) => o.status === 'Pending').length}
+            {orders.filter((o) => o.status === 'Pending').length}
           </p>
         </div>
         <div className="rounded-xl border border-black/10 bg-white p-5">
@@ -362,35 +221,6 @@ export function AdminOrdersTab() {
           <p className="mt-2 font-serif text-3xl text-emerald-700">{formatTk(revenue)}</p>
         </div>
       </div>
-
-      {/* Legacy order upload */}
-      {localOnly.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-xs text-amber-800">
-            <span className="font-bold">{localOnly.length}</span> order
-            {localOnly.length === 1 ? ' is' : 's are'} saved only on this device (placed while
-            the cloud was unreachable). Upload them so they show everywhere.
-          </p>
-          <button
-            onClick={() => void uploadLegacy()}
-            disabled={uploading}
-            className="ml-auto inline-flex items-center gap-2 rounded-lg bg-[#a05a39] px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#8d4c2f] disabled:opacity-50"
-          >
-            {uploading ? (
-              <>
-                <Loader2 size={13} className="animate-spin" /> Uploading…
-              </>
-            ) : (
-              <>
-                <UploadCloud size={13} /> Upload to cloud
-              </>
-            )}
-          </button>
-        </div>
-      )}
-      {uploadMessage && (
-        <p className="text-xs font-semibold text-[#a05a39]">{uploadMessage}</p>
-      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -424,7 +254,7 @@ export function AdminOrdersTab() {
           <ShoppingBag size={26} className="mx-auto text-black/25" />
           <p className="mt-3 font-serif text-xl">No orders yet</p>
           <p className="mt-1 text-xs text-black/45">
-            Orders placed at checkout — from any device — appear after you press{' '}
+            Orders placed at checkout — from any device — appear here after you press{' '}
             <span className="font-semibold">Refresh orders</span>.
           </p>
         </div>
@@ -433,7 +263,6 @@ export function AdminOrdersTab() {
           {filtered.map((order) => {
             const StatusIcon = STATUS_ICONS[order.status];
             const isOpen = expanded === order.id;
-            const deviceOnly = isLocalOnly(order);
             return (
               <div key={order.id} className="overflow-hidden rounded-xl border border-black/10 bg-white">
                 <button
@@ -446,11 +275,6 @@ export function AdminOrdersTab() {
                       {order.status}
                     </span>
                     <span className="font-mono text-xs font-semibold text-black/60">{order.id}</span>
-                    {deviceOnly && (
-                      <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
-                        This device
-                      </span>
-                    )}
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-6 text-xs">
                     <span className="font-semibold">{order.customerName}</span>
@@ -485,10 +309,6 @@ export function AdminOrdersTab() {
                             <dd className="font-semibold">{order.phone}</dd>
                           </div>
                           <div className="flex gap-2">
-                            <dt className="w-20 shrink-0 text-black/45">Email</dt>
-                            <dd>{order.email}</dd>
-                          </div>
-                          <div className="flex gap-2">
                             <dt className="w-20 shrink-0 text-black/45">Address</dt>
                             <dd className="flex-1">{order.address}</dd>
                           </div>
@@ -503,6 +323,14 @@ export function AdminOrdersTab() {
                               {order.paymentMethod}
                             </dd>
                           </div>
+                          {order.bkashNumber && (
+                            <div className="flex gap-2">
+                              <dt className="w-20 shrink-0 text-black/45">
+                                {order.paymentMethod === 'Rocket' ? 'Rocket no.' : 'bKash no.'}
+                              </dt>
+                              <dd className="font-semibold">{order.bkashNumber}</dd>
+                            </div>
+                          )}
                           {order.transactionId && (
                             <div className="flex gap-2">
                               <dt className="w-20 shrink-0 text-black/45">TrxID</dt>
@@ -540,14 +368,6 @@ export function AdminOrdersTab() {
                           ))}
                         </ul>
                         <div className="mt-3 space-y-1 border-t border-black/10 pt-3 text-xs">
-                          <div className="flex justify-between text-black/55">
-                            <span>Subtotal</span>
-                            <span>{formatTk(order.subtotal)}</span>
-                          </div>
-                          <div className="flex justify-between text-black/55">
-                            <span>Delivery</span>
-                            <span>{order.deliveryFee === 0 ? 'Free' : formatTk(order.deliveryFee)}</span>
-                          </div>
                           <div className="flex justify-between font-semibold">
                             <span>Total</span>
                             <span>{formatTk(order.total)}</span>

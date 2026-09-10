@@ -1,34 +1,5 @@
 import type { Product } from './types';
 
-export type OrderStatus = 'Pending' | 'Completed' | 'Cancelled';
-
-export type OrderItem = {
-  id: string;
-  name: string;
-  color: string;
-  price: string;
-  image_url: string;
-  qty: number;
-};
-
-export type Order = {
-  id: string;
-  createdAt: string;
-  customerName: string;
-  email: string;
-  phone: string;
-  address: string;
-  paymentMethod: string;
-  /** TrxID for bKash / Rocket payments, when provided. */
-  transactionId?: string;
-  items: OrderItem[];
-  subtotal: number;
-  deliveryFee: number;
-  total: number;
-  status: OrderStatus;
-};
-
-const ORDERS_KEY = 'vindeshi_orders';
 const PRODUCTS_KEY = 'vindeshi_products';
 
 function read<T>(key: string, fallback: T): T {
@@ -44,22 +15,8 @@ function write(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // storage unavailable — orders/products just won't persist
+    // storage unavailable — products just won't persist
   }
-}
-
-/* ── Orders ─────────────────────────────────────────────────── */
-
-export function getOrders(): Order[] {
-  return read<Order[]>(ORDERS_KEY, []);
-}
-
-export function saveOrders(orders: Order[]): void {
-  write(ORDERS_KEY, orders);
-}
-
-export function addOrder(order: Order): void {
-  saveOrders([order, ...getOrders()]);
 }
 
 /* ── Product inventory (localStorage override) ──────────────── */

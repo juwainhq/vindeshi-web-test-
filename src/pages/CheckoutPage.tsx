@@ -69,7 +69,7 @@ export function CheckoutPage() {
         : undefined,
     });
 
-    // 1) Save to the cloud database (falls back to this device if offline)
+    // 1) Save to the shared cloud store (falls back to this device if offline)
     let cloudSaved = true;
     try {
       await insertOrder(order);
@@ -137,8 +137,8 @@ export function CheckoutPage() {
             </div>
             <p className="border-t border-black/10 pt-3 text-[10px] leading-4 text-black/40">
               {savedToCloud
-                ? 'Order saved to the store database — we can see it instantly.'
-                : 'Order saved on this device — it will sync to the store when you contact us.'}
+                ? 'Order saved to the store cloud — we can see it instantly.'
+                : 'Order saved on this device — it syncs to the store cloud when the connection returns.'}
             </p>
           </div>
 

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Banknote,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   Loader2,
-  LogOut,
   RefreshCw,
   Search,
   ShoppingBag,
@@ -14,13 +15,12 @@ import {
   Wifi,
   XCircle,
 } from 'lucide-react';
-import { CloudSignIn } from './CloudSignIn';
-import { useAuth } from '../lib/useAuth';
 import {
-  cloudOrderToOrder,
   fetchOrders,
+  getOrdersBlobId,
+  isOrdersBlobBakedIn,
   migrateLegacyOrders,
-  subscribeToOrders,
+  unlinkOrdersStore,
   updateOrderStatus,
 } from '../lib/orders';
 import {
@@ -29,6 +29,7 @@ import {
   type Order,
   type OrderStatus,
 } from '../lib/local-store';
+import { OrdersSetupPanel } from './OrdersSetupPanel';
 
 const STATUSES: OrderStatus[] = ['Pending', 'Completed', 'Cancelled'];
 
@@ -47,15 +48,20 @@ const STATUS_ICONS: Record<OrderStatus, typeof Clock> = {
 const toNumber = (price: string) => Number(price.replace(/[^0-9.]/g, '')) || 0;
 const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 
-type LoadState = 'loading' | 'ready' | 'table-missing' | 'error';
+/** How often the dashboard polls the shared cloud store. */
+const POLL_MS = 8000;
+
+type LoadState = 'loading' | 'ready' | 'error';
 
 export function AdminOrdersTab() {
-  const { session, loading: authLoading, signOut } = useAuth();
-  const [cloudOrders, setCloudOrders] = useState<Order[]>([]);
+  const [blobId, setBlobId] = useState<string | null>(() => getOrdersBlobId());
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [errorText, setErrorText] = useState('');
   const [syncError, setSyncError] = useState<string | null>(null); // refresh hiccup — list stays
-  const [cloudUpToDate, setCloudUpToDate] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
   const [localOrders, setLocalOrders] = useState<Order[]>(getOrders());
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -65,26 +71,28 @@ export function AdminOrdersTab() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
 
-  // Lets loadOrders check "do we already have data?" without re-subscribing realtime
-  const cloudCountRef = useRef(0);
+  // Skip poll results while a status write is in flight so optimistic
+  // updates aren't visually reverted mid-request.
+  const writeInFlight = useRef(false);
+  const ordersCountRef = useRef(0);
   useEffect(() => {
-    cloudCountRef.current = cloudOrders.length;
-  }, [cloudOrders]);
+    ordersCountRef.current = orders.length;
+  }, [orders]);
 
-  /* ── Cloud fetching (initial + realtime) ── */
+  /* ── Cloud fetching (initial + live polling) ── */
 
-  const loadOrders = useCallback(async () => {
-    setCloudUpToDate(false);
+  const refresh = useCallback(async (quiet = true) => {
+    if (writeInFlight.current) return;
+    if (!quiet) setRefreshing(true);
     try {
       const rows = await fetchOrders();
-      setCloudOrders(rows.map(cloudOrderToOrder));
+      setOrders(rows);
       setLoadState('ready');
       setSyncError(null);
+      setLastSyncedAt(new Date());
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('PGRST205') || message.includes('could not find the table')) {
-        setLoadState('table-missing');
-      } else if (cloudCountRef.current > 0) {
+      if (ordersCountRef.current > 0) {
         // transient failure — keep showing the orders we already have
         setSyncError(`Couldn't refresh orders: ${message}`);
       } else {
@@ -92,23 +100,34 @@ export function AdminOrdersTab() {
         setErrorText(message);
       }
     } finally {
-      setCloudUpToDate(true);
+      if (!quiet) setRefreshing(false);
     }
   }, []);
 
-  // Fetch on sign-in and refetch live whenever an order changes anywhere
+  // Initial fetch, then poll the shared store every few seconds while
+  // the tab is visible — plus an immediate check whenever the window
+  // regains focus.
   useEffect(() => {
-    if (authLoading || !session) return;
-    void loadOrders();
-    const unsubscribe = subscribeToOrders(() => void loadOrders());
-    return unsubscribe;
-  }, [authLoading, session, loadOrders]);
+    if (!blobId) return;
+    void refresh(false);
+    const tick = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    const interval = setInterval(tick, POLL_MS);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [blobId, refresh]);
 
   /* ── Status updates ── */
 
   const localOnly = useMemo(
-    () => localOrders.filter((local) => !cloudOrders.some((cloud) => cloud.id === local.id)),
-    [localOrders, cloudOrders]
+    () => localOrders.filter((local) => !orders.some((cloud) => cloud.id === local.id)),
+    [localOrders, orders]
   );
 
   const isLocalOnly = (order: Order) => localOnly.some((o) => o.id === order.id);
@@ -124,21 +143,25 @@ export function AdminOrdersTab() {
       return;
     }
 
-    // Cloud order — update optimistically, then persist
-    setCloudOrders((current) =>
+    // Cloud order — update optimistically, then persist + hard refresh
+    writeInFlight.current = true;
+    setOrders((current) =>
       current.map((o) => (o.id === order.id ? { ...o, status } : o))
     );
     setStatusBusy(order.id);
+    let failure: string | null = null;
     try {
       await updateOrderStatus(order.id, status);
     } catch (err) {
-      setSyncError(
-        `Could not update ${order.id}: ${err instanceof Error ? err.message : 'unknown error'}`
-      );
-      void loadOrders(); // revert to the server's version
+      failure = `Could not update ${order.id}: ${
+        err instanceof Error ? err.message : 'unknown error'
+      }`;
     } finally {
       setStatusBusy(null);
+      writeInFlight.current = false;
     }
+    if (failure) setSyncError(failure);
+    await refresh(false);
   };
 
   /* ── Legacy order upload (localStorage → cloud) ── */
@@ -156,7 +179,7 @@ export function AdminOrdersTab() {
             : `Uploaded ${uploaded} order${uploaded === 1 ? '' : 's'} to the cloud.`
       );
       setLocalOrders(getOrders());
-      void loadOrders(); // realtime also refreshes; this covers when realtime is off
+      await refresh(false);
     } catch {
       setUploadMessage('Upload failed — check your connection and try again.');
     } finally {
@@ -166,11 +189,11 @@ export function AdminOrdersTab() {
 
   /* ── Combined list: cloud first, then device-only rows ── */
 
-  const orders = useMemo(() => [...cloudOrders, ...localOnly], [cloudOrders, localOnly]);
+  const allOrders = useMemo(() => [...orders, ...localOnly], [orders, localOnly]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return orders.filter((order) => {
+    return allOrders.filter((order) => {
       const matchesStatus = filter === 'All' || order.status === filter;
       const matchesSearch =
         !q ||
@@ -179,51 +202,40 @@ export function AdminOrdersTab() {
         order.phone.includes(q);
       return matchesStatus && matchesSearch;
     });
-  }, [orders, filter, search]);
+  }, [allOrders, filter, search]);
 
-  const revenue = orders
+  const revenue = allOrders
     .filter((o) => o.status !== 'Cancelled')
     .reduce((sum, o) => sum + o.total, 0);
 
+  const copyStoreId = async () => {
+    if (!blobId) return;
+    try {
+      await navigator.clipboard.writeText(blobId);
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 2000);
+    } catch {
+      // clipboard unavailable — copy manually from the docs
+    }
+  };
+
   /* ── Gates ── */
 
-  if (authLoading) {
+  if (!blobId) {
     return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="animate-spin text-[#a05a39]" size={28} />
-      </div>
-    );
-  }
-
-  if (!session) {
-    return (
-      <CloudSignIn
-        title="Cloud orders access"
-        description={
-          'Orders live in your Supabase cloud database, protected by row-level security. Sign in with your Supabase account to view them from any device, in real time.'
-        }
+      <OrdersSetupPanel
+        onLinked={() => {
+          setBlobId(getOrdersBlobId());
+          setLoadState('loading');
+        }}
       />
     );
   }
 
-  if (loadState === 'loading' && cloudOrders.length === 0) {
+  if (loadState === 'loading' && orders.length === 0) {
     return (
       <div className="flex justify-center py-20">
         <Loader2 className="animate-spin text-[#a05a39]" size={28} />
-      </div>
-    );
-  }
-
-  if (loadState === 'table-missing') {
-    return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-        <AlertCircle className="mx-auto text-red-500" size={30} />
-        <p className="mt-3 font-serif text-xl">Orders table not set up yet</p>
-        <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-black/60">
-          The cloud orders system needs its database table. Run the SQL script from step 1 of{' '}
-          <span className="font-semibold">SUPABASE_SETUP.md</span> in your Supabase SQL editor,
-          then reload this page.
-        </p>
       </div>
     );
   }
@@ -233,47 +245,77 @@ export function AdminOrdersTab() {
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
         <AlertCircle className="mx-auto text-red-500" size={30} />
         <p className="mt-3 font-serif text-xl">Couldn't load cloud orders</p>
-        <p className="mt-2 text-xs text-black/60">{errorText}</p>
-        <button
-          onClick={() => void loadOrders()}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39]"
-        >
-          <RefreshCw size={13} /> Try again
-        </button>
+        <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-black/60">{errorText}</p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <button
+            onClick={() => void refresh(false)}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39]"
+          >
+            <RefreshCw size={13} /> Try again
+          </button>
+          {!isOrdersBlobBakedIn() && (
+            <button
+              onClick={() => {
+                unlinkOrdersStore();
+                setBlobId(null);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]"
+            >
+              Choose another store
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
   /* ── Orders dashboard ── */
 
+  const shortId =
+    blobId.length > 14 ? `${blobId.slice(0, 8)}…${blobId.slice(-4)}` : blobId;
+
   return (
     <div className="space-y-5">
       {/* Live status strip */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-black/10 bg-white p-4">
         <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-          <Wifi size={12} /> Live · cloud connected
+          <Wifi size={12} /> Live · syncs every 8s
         </span>
         <p className="text-xs text-black/50">
-          Signed in as <span className="font-semibold text-[#171717]">{session.user.email}</span> —
-          orders appear here instantly from any device.
+          Shared cloud store{' '}
+          <span className="font-mono font-semibold text-[#171717]">{shortId}</span>
+          {lastSyncedAt && <> · synced {lastSyncedAt.toLocaleTimeString('en-GB')}</>} — orders
+          placed from any device appear here automatically.
         </p>
         <div className="ml-auto flex items-center gap-2">
-          {!cloudUpToDate && <Loader2 size={13} className="animate-spin text-black/40" />}
+          {refreshing && <Loader2 size={13} className="animate-spin text-black/40" />}
           <button
-            onClick={() => void loadOrders()}
-            title="Refresh orders"
-            className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]"
+            onClick={() => void refresh(false)}
+            disabled={refreshing}
+            title="Fetch the latest orders from the cloud store now"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#171717] px-4 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
           >
-            <RefreshCw size={13} /> Refresh
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} /> Refresh orders
           </button>
           <button
-            onClick={() => void signOut()}
+            onClick={() => void copyStoreId()}
+            title="Copy the shared store ID"
             className="inline-flex items-center gap-2 rounded-lg border border-black/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-black/55 transition hover:border-[#a05a39] hover:text-[#a05a39]"
           >
-            <LogOut size={13} /> Sign out
+            {copiedId ? <Check size={13} /> : <Copy size={13} />} {copiedId ? 'Copied' : 'Copy ID'}
           </button>
         </div>
       </div>
+
+      {/* Hint until the store ID is baked into the build */}
+      {!isOrdersBlobBakedIn() && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs leading-5 text-amber-800">
+          This browser is linked via its saved store ID. To make <span className="font-bold">every</span>{' '}
+          visitor's checkout save to the shared store, paste the ID into{' '}
+          <code className="font-mono">ORDERS_BLOB_ID</code> at the top of{' '}
+          <code className="font-mono">src/lib/orders.ts</code> and redeploy the app.
+        </p>
+      )}
 
       {syncError && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-800">
@@ -285,12 +327,12 @@ export function AdminOrdersTab() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-black/10 bg-white p-5">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/40">Orders</p>
-          <p className="mt-2 font-serif text-3xl">{orders.length}</p>
+          <p className="mt-2 font-serif text-3xl">{allOrders.length}</p>
         </div>
         <div className="rounded-xl border border-black/10 bg-white p-5">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/40">Pending</p>
           <p className="mt-2 font-serif text-3xl text-amber-600">
-            {orders.filter((o) => o.status === 'Pending').length}
+            {allOrders.filter((o) => o.status === 'Pending').length}
           </p>
         </div>
         <div className="rounded-xl border border-black/10 bg-white p-5">
@@ -304,8 +346,8 @@ export function AdminOrdersTab() {
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs text-amber-800">
             <span className="font-bold">{localOnly.length}</span> order
-            {localOnly.length === 1 ? ' is' : 's are'} saved only on this device (placed before
-            the cloud upgrade or while offline). Upload them so they show everywhere.
+            {localOnly.length === 1 ? ' is' : 's are'} saved only on this device (placed while
+            the cloud was unreachable). Upload them so they show everywhere.
           </p>
           <button
             onClick={() => void uploadLegacy()}
@@ -360,7 +402,7 @@ export function AdminOrdersTab() {
           <ShoppingBag size={26} className="mx-auto text-black/25" />
           <p className="mt-3 font-serif text-xl">No orders yet</p>
           <p className="mt-1 text-xs text-black/45">
-            New orders placed at checkout appear here instantly.
+            New orders placed at checkout — from any device — appear here automatically.
           </p>
         </div>
       ) : (

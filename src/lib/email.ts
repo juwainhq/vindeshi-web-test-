@@ -8,17 +8,17 @@ import type { Order } from './local-store';
  * template — never in this file — so the public key can't be abused to
  * send emails to arbitrary addresses.
  *
- * One-time setup (~5 minutes, see SUPABASE_SETUP.md step 3):
+ * One-time setup (~5 minutes, see SETUP.md step 2):
  *  1. Create an account at https://www.emailjs.com/
  *  2. Email Services → connect your email provider → copy the Service ID
  *  3. Email Templates → create a template using the variables below
- *     (subject, content and "To email" are listed in SUPABASE_SETUP.md)
+ *     (subject, content and "To email" are listed in SETUP.md)
  *     → copy the Template ID
  *  4. Account → General → copy your Public Key
  *  5. Fill in the three constants below.
  *
  * Until configured, emails are skipped silently — orders still save to
- * the cloud database either way.
+ * the shared cloud store either way.
  */
 
 const EMAILJS_SERVICE_ID = ''; // e.g. 'service_xxxxxxx'
@@ -26,6 +26,9 @@ const EMAILJS_TEMPLATE_ID = ''; // e.g. 'template_xxxxxxx'
 const EMAILJS_PUBLIC_KEY = ''; // e.g. 'AbC123xyz…'
 
 const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
+
+const isEmailConfigured = () =>
+  EMAILJS_SERVICE_ID !== '' && EMAILJS_TEMPLATE_ID !== '' && EMAILJS_PUBLIC_KEY !== '';
 
 /** Email the store owner the full details of a newly placed order. */
 export async function sendOrderNotification(order: Order): Promise<void> {

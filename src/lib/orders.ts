@@ -70,7 +70,7 @@ export function buildOrder(
  * Admin browsers can also link the ID locally (no rebuild needed)
  * from the same setup panel.
  */
-const ORDERS_BLOB_ID = ''; // e.g. '1234567890123456789'
+const ORDERS_BLOB_ID = '01a08b1a-ca5b-75ab-9e81-a8d507e1db42'; // your shared cloud store
 
 /** Blob ID saved on this browser by the admin setup panel. */
 const BLOB_ID_KEY = 'vindeshi_orders_blob_id';

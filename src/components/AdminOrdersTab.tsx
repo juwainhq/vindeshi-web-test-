@@ -5,20 +5,22 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Cloud,
   Copy,
   Loader2,
   RefreshCw,
   Search,
   ShoppingBag,
   Smartphone,
+  Timer,
   UploadCloud,
-  Wifi,
   XCircle,
 } from 'lucide-react';
 import {
   fetchOrders,
   getOrdersBlobId,
   isOrdersBlobBakedIn,
+  isRateLimitError,
   migrateLegacyOrders,
   unlinkOrdersStore,
   updateOrderStatus,
@@ -48,9 +50,6 @@ const STATUS_ICONS: Record<OrderStatus, typeof Clock> = {
 const toNumber = (price: string) => Number(price.replace(/[^0-9.]/g, '')) || 0;
 const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 
-/** How often the dashboard polls the shared cloud store. */
-const POLL_MS = 8000;
-
 type LoadState = 'loading' | 'ready' | 'error';
 
 export function AdminOrdersTab() {
@@ -59,6 +58,7 @@ export function AdminOrdersTab() {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [errorText, setErrorText] = useState('');
   const [syncError, setSyncError] = useState<string | null>(null); // refresh hiccup — list stays
+  const [rateLimited, setRateLimited] = useState(false); // last refresh hit a 429
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
@@ -71,7 +71,7 @@ export function AdminOrdersTab() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
 
-  // Skip poll results while a status write is in flight so optimistic
+  // Skips refresh results while a status write is in flight so optimistic
   // updates aren't visually reverted mid-request.
   const writeInFlight = useRef(false);
   const ordersCountRef = useRef(0);
@@ -79,7 +79,7 @@ export function AdminOrdersTab() {
     ordersCountRef.current = orders.length;
   }, [orders]);
 
-  /* ── Cloud fetching (initial + live polling) ── */
+  /* ── Cloud fetching (on demand only) ── */
 
   const refresh = useCallback(async (quiet = true) => {
     if (writeInFlight.current) return;
@@ -88,39 +88,42 @@ export function AdminOrdersTab() {
       const rows = await fetchOrders();
       setOrders(rows);
       setLoadState('ready');
+      setRateLimited(false);
       setSyncError(null);
       setLastSyncedAt(new Date());
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (ordersCountRef.current > 0) {
-        // transient failure — keep showing the orders we already have
-        setSyncError(`Couldn't refresh orders: ${message}`);
+      if (isRateLimitError(err)) {
+        // Too many requests in a short window — friendly note, no crash
+        setRateLimited(true);
+        const message = 'Rate limit reached — please wait 30 seconds and click Refresh.';
+        if (ordersCountRef.current > 0) {
+          setSyncError(null); // the dedicated rate-limit banner below shows this
+        } else {
+          setLoadState('error');
+          setErrorText(message);
+        }
       } else {
-        setLoadState('error');
-        setErrorText(message);
+        setRateLimited(false);
+        const message = err instanceof Error ? err.message : String(err);
+        if (ordersCountRef.current > 0) {
+          // transient failure — keep showing the orders we already have
+          setSyncError(`Couldn't refresh orders: ${message}`);
+        } else {
+          setLoadState('error');
+          setErrorText(message);
+        }
       }
     } finally {
       if (!quiet) setRefreshing(false);
     }
   }, []);
 
-  // Initial fetch, then poll the shared store every few seconds while
-  // the tab is visible — plus an immediate check whenever the window
-  // regains focus.
+  // Fetch the shared store ONCE when the tab opens (and again only if
+  // the linked store itself changes). No interval, no auto-polling —
+  // the Refresh orders button pulls new orders on demand.
   useEffect(() => {
     if (!blobId) return;
     void refresh(false);
-    const tick = () => {
-      if (document.visibilityState === 'visible') void refresh();
-    };
-    const interval = setInterval(tick, POLL_MS);
-    window.addEventListener('focus', tick);
-    document.addEventListener('visibilitychange', tick);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', tick);
-      document.removeEventListener('visibilitychange', tick);
-    };
   }, [blobId, refresh]);
 
   /* ── Status updates ── */
@@ -276,19 +279,21 @@ export function AdminOrdersTab() {
 
   return (
     <div className="space-y-5">
-      {/* Live status strip */}
+      {/* Status strip */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-black/10 bg-white p-4">
         <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-          <Wifi size={12} /> Live · syncs every 8s
+          <Cloud size={12} /> Cloud synced
         </span>
         <p className="text-xs text-black/50">
           Shared cloud store{' '}
           <span className="font-mono font-semibold text-[#171717]">{shortId}</span>
-          {lastSyncedAt && <> · synced {lastSyncedAt.toLocaleTimeString('en-GB')}</>} — orders
-          placed from any device appear here automatically.
+          {lastSyncedAt && <> · synced {lastSyncedAt.toLocaleTimeString('en-GB')}</>} — press{' '}
+          <span className="font-semibold text-[#171717]">Refresh orders</span> to pull orders
+          placed from any device.
         </p>
         <div className="ml-auto flex items-center gap-2">
           {refreshing && <Loader2 size={13} className="animate-spin text-black/40" />}
+
           <button
             onClick={() => void refresh(false)}
             disabled={refreshing}
@@ -315,6 +320,23 @@ export function AdminOrdersTab() {
           <code className="font-mono">ORDERS_BLOB_ID</code> at the top of{' '}
           <code className="font-mono">src/lib/orders.ts</code> and redeploy the app.
         </p>
+      )}
+
+      {/* Rate-limit notice — cloud asked us to slow down, nothing is lost */}
+      {rateLimited && orders.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <Timer size={15} className="shrink-0 text-amber-600" />
+          <p className="text-xs font-semibold text-amber-800">
+            Rate limit reached — please wait 30 seconds and click Refresh.
+          </p>
+          <button
+            onClick={() => void refresh(false)}
+            disabled={refreshing}
+            className="ml-auto inline-flex items-center gap-2 rounded-lg bg-[#171717] px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white transition hover:bg-[#a05a39] disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
       )}
 
       {syncError && (
@@ -402,7 +424,8 @@ export function AdminOrdersTab() {
           <ShoppingBag size={26} className="mx-auto text-black/25" />
           <p className="mt-3 font-serif text-xl">No orders yet</p>
           <p className="mt-1 text-xs text-black/45">
-            New orders placed at checkout — from any device — appear here automatically.
+            Orders placed at checkout — from any device — appear after you press{' '}
+            <span className="font-semibold">Refresh orders</span>.
           </p>
         </div>
       ) : (

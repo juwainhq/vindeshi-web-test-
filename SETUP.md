@@ -2,9 +2,10 @@
 
 Your store saves every order to **one shared JSON document in the cloud** and
 (optionally) emails you the full order details the moment it's placed. The
-admin **Orders** tab reads from that shared document and refreshes
-**automatically** — every 8 seconds — so orders placed from any device, by
-anyone, appear in your dashboard live.
+admin **Orders** tab reads from that shared document — it loads orders once
+when you open it, and the **Refresh orders** button pulls in anything new on
+demand. No auto-polling, so the free cloud store is never spammed (and its
+rate limit stays clear).
 
 The shared storage runs on **jsonblob.com** — a free, keyless JSON storage
 API. No accounts, no API keys, no database setup. There's **one step** for
@@ -37,9 +38,11 @@ like this one — can see and write the store.)
 > `{"orders": []}` into the editor, click **Create**, and link the resulting
 > URL in the setup panel instead. Both paths end the same way.
 
-Once linked, the Orders tab polls the shared store every 8 seconds (and on
-window focus) — new orders appear automatically. The **Refresh orders**
-button forces an immediate sync whenever you want it.
+Once linked, the Orders tab fetches the shared store once when it opens.
+Whenever you want the latest orders — placed from any device — just press
+the **Refresh orders** button in the status strip. Checkouts themselves
+write to the cloud immediately, so every order is stored the moment it's
+placed regardless of the admin panel.
 
 ### Orders while offline
 
@@ -102,8 +105,8 @@ shared cloud store, emails are just skipped.
    (if you set up step 2).
 3. Open **/admin** (on any device), unlock with your admin password, go to
    **Orders** — your order is there.
-4. Place another order in a different browser — it appears in the open panel
-   within seconds, no refresh needed (or press **Refresh orders**).
+4. Place another order in a different browser — press **Refresh orders** in
+   the open panel and it appears.
 5. Change an order's status, reload from another device, and confirm it
    persisted.
 
@@ -115,10 +118,11 @@ shared cloud store, emails are just skipped.
   else in your store is affected.
 - Checkout **fetches the current list, merges the new order in, and writes
   the whole document back** — so orders placed from multiple devices are all
-  kept. (Two checkouts submitting in the same instant could lose one to a
-  race — for a small store this is extremely rare, the order also emails you
-  if EmailJS is configured, and the browser fallback keeps it on the
-  customer's device.)
+  kept. Cloud requests automatically wait out and retry rate limits (429),
+  so an order still saves even if the store is briefly busy. (Two checkouts
+  submitting in the same instant could lose one to a race — for a small
+  store this is extremely rare, the order also emails you if EmailJS is
+  configured, and the browser fallback keeps it on the customer's device.)
 - The admin tab updates statuses by rewriting the document with the change —
   optimistic in the UI, then verified by a hard refresh.
 - All reads are defensively parsed, so malformed or malicious edits to the
@@ -131,7 +135,7 @@ shared cloud store, emails are just skipped.
 | --- | --- |
 | Orders tab shows the setup panel | No store linked yet — do step 1 |
 | "No cloud store exists with that ID" (404) | The document was deleted — create a new store, update `ORDERS_BLOB_ID`, and re-link other browsers |
-| "Cloud store responded with 429" | Too many requests in a short window — wait ~30s and press Refresh orders (polling pauses while the tab is hidden) |
+| "Rate limit reached" banner | The free store limits bursts of requests — wait 30 seconds and click Refresh (checkouts retry automatically in the background and are unaffected) |
 | New orders don't appear | Press **Refresh orders**; check the ID matches across devices |
 | Order says it was saved "on this device" | The cloud was unreachable at checkout — use **Upload to cloud** in the Orders tab |
 | Orders look wrong / fields are empty | The public document may have been edited — the dashboard skips malformed rows, so only valid orders show |

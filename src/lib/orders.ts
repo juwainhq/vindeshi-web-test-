@@ -78,6 +78,49 @@ const BLOB_ID_KEY = 'vindeshi_orders_blob_id';
 const API_BASE = 'https://jsonblob.com/api/jsonBlob';
 const REQUEST_TIMEOUT_MS = 12000;
 
+/* ── Rate limiting (HTTP 429) ────────────────────────────────── */
+
+/** Pause before retrying after a 429 — the store's limit window is short. */
+const RATE_LIMIT_RETRY_MS = 31000;
+/** Attempts per operation before giving up (first try + 2 retries). */
+const RATE_LIMIT_ATTEMPTS = 3;
+
+/** Cloud store error carrying the HTTP status, so callers can react
+ *  to rate limits (429) specifically instead of crashing generically. */
+export class CloudError extends Error {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'CloudError';
+    this.status = status;
+  }
+}
+
+/** True when an error came from the cloud store rate limiting us (429). */
+export function isRateLimitError(err: unknown): boolean {
+  return err instanceof CloudError && err.status === 429;
+}
+
+/** Wait `ms` milliseconds. */
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Run a cloud request, automatically retrying after rate limits.
+ *  Checkouts are far apart, so waiting out the limit window — instead
+ *  of failing — keeps every order safely stored. */
+async function retryOnRateLimit<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= RATE_LIMIT_ATTEMPTS; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (!isRateLimitError(err) || attempt === RATE_LIMIT_ATTEMPTS) throw err;
+      await delay(RATE_LIMIT_RETRY_MS);
+    }
+  }
+  throw lastError; // unreachable — kept for TypeScript
+}
+
 function readLocalBlobId(): string | null {
   try {
     const id = localStorage.getItem(BLOB_ID_KEY);
@@ -138,6 +181,9 @@ export async function createOrdersStore(): Promise<string> {
     method: 'POST',
     body: JSON.stringify({ orders: [] }),
   });
+  if (res.status === 429) {
+    throw new Error('Rate limit reached — wait about 30 seconds and try again.');
+  }
   if (!res.ok) throw new Error(`jsonblob responded with ${res.status}.`);
   const id = res.headers.get('X-jsonblob') ?? lastSegment(res.headers.get('Location'));
   if (!id) {
@@ -156,6 +202,9 @@ export async function linkOrdersStore(input: string): Promise<string> {
   if (!id) throw new Error('Paste the store ID or its jsonblob.com URL.');
   const res = await request(`/${encodeURIComponent(id)}`, { method: 'GET' });
   if (res.status === 404) throw new Error('No cloud store exists with that ID.');
+  if (res.status === 429) {
+    throw new Error('Rate limit reached — wait about 30 seconds and try again.');
+  }
   if (!res.ok) throw new Error(`jsonblob responded with ${res.status}.`);
   saveLocalBlobId(id);
   return id;
@@ -221,8 +270,19 @@ async function putOrders(orders: Order[]): Promise<void> {
     method: 'PUT',
     body: JSON.stringify({ orders }),
   });
-  if (res.status === 404) throw new Error('The cloud store no longer exists (404).');
-  if (!res.ok) throw new Error(`Cloud store write failed (${res.status}).`);
+  if (res.status === 404) {
+    throw new CloudError('The cloud store no longer exists (404).', 404);
+  }
+  if (res.status === 429) {
+    throw new CloudError('Cloud store write rate limit reached (429).', 429);
+  }
+  if (!res.ok) throw new CloudError(`Cloud store write failed (${res.status}).`, res.status);
+}
+
+/** putOrders with automatic 429 retries — order writes can wait out a
+ *  rate limit, so they never fail (and never drop an order). */
+async function putOrdersWithRetry(orders: Order[]): Promise<void> {
+  await retryOnRateLimit(() => putOrders(orders));
 }
 
 /* ── Cloud operations ────────────────────────────────────────── */
@@ -233,13 +293,22 @@ async function putOrders(orders: Order[]): Promise<void> {
 export async function fetchOrders(): Promise<Order[]> {
   const id = getOrdersBlobId();
   if (!id) throw new Error('No cloud store configured yet.');
-  const res = await request(`/${encodeURIComponent(id)}`, { method: 'GET' });
+  // Reads retry automatically after a 429, so a manual refresh
+  // recovers on its own once the limit window passes.
+  const res = await retryOnRateLimit(async () => {
+    const r = await request(`/${encodeURIComponent(id)}`, { method: 'GET' });
+    if (r.status === 429) {
+      throw new CloudError('Cloud store rate limit reached (429).', 429);
+    }
+    return r;
+  });
   if (res.status === 404) {
-    throw new Error(
-      'The cloud store no longer exists (404) — link a new one from the admin Orders tab.'
+    throw new CloudError(
+      'The cloud store no longer exists (404) — link a new one from the admin Orders tab.',
+      404
     );
   }
-  if (!res.ok) throw new Error(`Cloud store responded with ${res.status}.`);
+  if (!res.ok) throw new CloudError(`Cloud store responded with ${res.status}.`, res.status);
 
   const data: unknown = await res.json();
   const list = Array.isArray(data)
@@ -257,8 +326,10 @@ export async function fetchOrders(): Promise<Order[]> {
 /** Save a new order to the shared cloud store (called from checkout).
  *  Merges into the current list so orders placed elsewhere are kept. */
 export async function insertOrder(order: Order): Promise<void> {
+  // The GET retries on 429 by itself, and the write goes through the
+  // retry helper too — so checkout saves the order no matter what.
   const current = await fetchOrders();
-  await putOrders([order, ...current.filter((o) => o.id !== order.id)]);
+  await putOrdersWithRetry([order, ...current.filter((o) => o.id !== order.id)]);
 }
 
 /** Update an order's status in the shared store (admin panel). */
@@ -267,7 +338,7 @@ export async function updateOrderStatus(orderId: string, status: OrderStatus): P
   if (!current.some((o) => o.id === orderId)) {
     throw new Error('Order not found in the cloud store.');
   }
-  await putOrders(current.map((o) => (o.id === orderId ? { ...o, status } : o)));
+  await putOrdersWithRetry(current.map((o) => (o.id === orderId ? { ...o, status } : o)));
 }
 
 /** One-time upload of orders saved in this browser's localStorage
@@ -286,7 +357,7 @@ export async function migrateLegacyOrders(): Promise<{ uploaded: number; failed:
   }
 
   try {
-    await putOrders([...pending, ...cloud]);
+    await putOrdersWithRetry([...pending, ...cloud]);
   } catch {
     return { uploaded: 0, failed: pending.length };
   }

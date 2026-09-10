@@ -8,19 +8,10 @@ import {
 } from 'react';
 import type { Product } from '../lib/types';
 import type { ToastState } from '../components/Toast';
-import {
-  addOrder,
-  type Order,
-  type OrderItem,
-} from './local-store';
 
 type CartLine = { product: Product; qty: number };
 
 const CART_KEY = 'vindeshi_cart';
-const FREE_DELIVERY_THRESHOLD = 2000;
-const DELIVERY_FEE = 80;
-
-const toNumber = (price: string) => Number(price.replace(/[^0-9.]/g, '')) || 0;
 
 type CartContextValue = {
   cart: CartLine[];
@@ -35,13 +26,6 @@ type CartContextValue = {
   setSearchOpen: (open: boolean) => void;
   showToast: (message: string) => void;
   clearCart: () => void;
-  placeOrder: (customer: {
-    customerName: string;
-    email: string;
-    phone: string;
-    address: string;
-    paymentMethod: string;
-  }) => Order;
 };
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -111,39 +95,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCartOpen(false);
   };
 
-  const placeOrder = (customer: {
-    customerName: string;
-    email: string;
-    phone: string;
-    address: string;
-    paymentMethod: string;
-  }): Order => {
-    const items: OrderItem[] = cart.map((line) => ({
-      id: line.product.id,
-      name: line.product.name,
-      color: line.product.color,
-      price: line.product.price,
-      image_url: line.product.images[0],
-      qty: line.qty,
-    }));
-    const subtotal = cart.reduce((sum, line) => sum + toNumber(line.product.price) * line.qty, 0);
-    const deliveryFee = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
-    const order: Order = {
-      id: `VND-${Date.now().toString(36).toUpperCase()}`,
-      createdAt: new Date().toISOString(),
-      ...customer,
-      items,
-      subtotal,
-      deliveryFee,
-      total: subtotal + deliveryFee,
-      status: 'Pending',
-    };
-    addOrder(order);
-    setCart([]);
-    setCartOpen(false);
-    return order;
-  };
-
   const cartCount = useMemo(
     () => cart.reduce((sum, line) => sum + line.qty, 0),
     [cart]
@@ -163,7 +114,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setSearchOpen,
       showToast,
       clearCart,
-      placeOrder,
     }),
     [cart, cartCount, cartOpen, searchOpen, toast]
   );

@@ -11,13 +11,18 @@ import {
 } from 'lucide-react';
 import { useSiteContent } from '../lib/useSiteContent';
 import { useCart } from '../lib/cart-context';
-import type { Order } from '../lib/local-store';
+import { buildOrder, insertOrder } from '../lib/orders';
+import { sendOrderNotification } from '../lib/email';
+import { addOrder, type Order } from '../lib/local-store';
 
 const PAYMENT_METHODS = [
   { id: 'Cash on Delivery', label: 'Cash on Delivery', hint: 'Pay when your bag arrives', icon: Banknote },
   { id: 'Bkash', label: 'bKash', hint: 'Pay instantly from your bKash account', icon: Smartphone },
   { id: 'Rocket', label: 'Rocket', hint: 'Pay instantly from your Rocket account', icon: Smartphone },
 ];
+
+/** Payment methods that need a transaction ID. */
+const isMobilePayment = (method: string) => method === 'Bkash' || method === 'Rocket';
 
 const FREE_DELIVERY_THRESHOLD = 2000;
 const DELIVERY_FEE = 80;
@@ -27,15 +32,17 @@ const formatTk = (amount: number) => `Tk ${amount.toLocaleString('en-US')}`;
 
 export function CheckoutPage() {
   const { content, loading } = useSiteContent();
-  const { cart, placeOrder } = useCart();
+  const { cart, clearCart } = useCart();
 
   const [customerName, setCustomerName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
+  const [transactionId, setTransactionId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
+  const [savedToCloud, setSavedToCloud] = useState(true);
 
   const settings = content?.settings ?? null;
 
@@ -46,23 +53,43 @@ export function CheckoutPage() {
   const deliveryFee = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
   const total = subtotal + deliveryFee;
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (cart.length === 0) return;
+    if (cart.length === 0 || submitting) return;
     setSubmitting(true);
-    // Small delay so the success screen feels intentional
-    setTimeout(() => {
-      const order = placeOrder({
-        customerName,
-        email,
-        phone,
-        address,
-        paymentMethod,
-      });
-      setPlacedOrder(order);
-      setSubmitting(false);
-      window.scrollTo(0, 0);
-    }, 600);
+
+    const order = buildOrder(cart, {
+      customerName,
+      email,
+      phone,
+      address,
+      paymentMethod,
+      transactionId: isMobilePayment(paymentMethod)
+        ? transactionId.trim() || undefined
+        : undefined,
+    });
+
+    // 1) Save to the cloud database (falls back to this device if offline)
+    let cloudSaved = true;
+    try {
+      await insertOrder(order);
+    } catch {
+      cloudSaved = false;
+      addOrder(order); // keep it locally so the order is never lost
+    }
+
+    // 2) Email the store owner (best-effort — never blocks the order)
+    try {
+      await sendOrderNotification(order);
+    } catch {
+      // email hiccup: order is still safely stored
+    }
+
+    setSavedToCloud(cloudSaved);
+    setPlacedOrder(order);
+    setSubmitting(false);
+    clearCart();
+    window.scrollTo(0, 0);
   };
 
   /* ── Order success screen ─────────────────────────────────── */
@@ -93,7 +120,10 @@ export function CheckoutPage() {
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-black/50">Payment</span>
-              <span className="font-semibold">{placedOrder.paymentMethod}</span>
+              <span className="font-semibold">
+                {placedOrder.paymentMethod}
+                {placedOrder.transactionId ? ` · TrxID ${placedOrder.transactionId}` : ''}
+              </span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-black/50">Delivery</span>
@@ -105,6 +135,11 @@ export function CheckoutPage() {
               <span className="font-semibold">Total</span>
               <span className="font-semibold">{formatTk(placedOrder.total)}</span>
             </div>
+            <p className="border-t border-black/10 pt-3 text-[10px] leading-4 text-black/40">
+              {savedToCloud
+                ? 'Order saved to the store database — we can see it instantly.'
+                : 'Order saved on this device — it will sync to the store when you contact us.'}
+            </p>
           </div>
 
           <Link
@@ -255,6 +290,25 @@ export function CheckoutPage() {
                 ))}
               </div>
             </fieldset>
+
+            {/* TrxID — only for mobile payments */}
+            {isMobilePayment(paymentMethod) && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-black/50">
+                  Transaction ID (TrxID) — optional
+                </span>
+                <input
+                  value={transactionId}
+                  onChange={(e) => setTransactionId(e.target.value)}
+                  placeholder="e.g. 9F7A2C81KX"
+                  className="w-full rounded-lg border border-black/15 bg-white px-3.5 py-3 font-mono text-sm uppercase outline-none transition focus:border-[#a05a39]"
+                />
+                <span className="mt-1.5 block text-[10px] text-black/40">
+                  Found in your {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} app's payment
+                  history. Helps us verify your payment faster.
+                </span>
+              </label>
+            )}
 
             <button
               type="submit"

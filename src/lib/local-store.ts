@@ -19,6 +19,8 @@ export type Order = {
   phone: string;
   address: string;
   paymentMethod: string;
+  /** TrxID for bKash / Rocket payments, when provided. */
+  transactionId?: string;
   items: OrderItem[];
   subtotal: number;
   deliveryFee: number;

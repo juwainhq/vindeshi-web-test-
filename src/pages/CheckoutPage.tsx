@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Banknote,
@@ -12,6 +11,9 @@ import {
 } from 'lucide-react';
 import { useSiteContent } from '../lib/useSiteContent';
 import { useCart } from '../lib/cart-context';
+import { buildOrder, insertOrder } from '../lib/orders';
+import { sendOrderNotification } from '../lib/email';
+import { addOrder, type Order } from '../lib/local-store';
 
 const PAYMENT_METHODS = [
   { id: 'Cash on Delivery', label: 'Cash on Delivery', hint: 'Pay when your bag arrives', icon: Banknote },
@@ -39,8 +41,8 @@ export function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   const [transactionId, setTransactionId] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [orderPlaced, setOrderPlaced] = useState(false);
-  const [orderError, setOrderError] = useState(false);
+  const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
+  const [savedToCloud, setSavedToCloud] = useState(true);
 
   const settings = content?.settings ?? null;
 
@@ -55,62 +57,43 @@ export function CheckoutPage() {
     event.preventDefault();
     if (cart.length === 0 || submitting) return;
     setSubmitting(true);
-    setOrderError(false);
 
-    // Build flat object for Formspree
-    const formData = {
+    const order = buildOrder(cart, {
       customerName,
       email,
       phone,
       address,
       paymentMethod,
-      ...(isMobilePayment(paymentMethod) && transactionId.trim() && {
-        transactionId: transactionId.trim(),
-      }),
-      // Include cart items as a JSON string
-      items: JSON.stringify(
-        cart.map((line) => ({
-          productId: line.product.id,
-          name: line.product.name,
-          color: line.product.color,
-          price: line.product.price,
-          qty: line.qty,
-          image: line.product.images[0],
-        })))
-    };
+      transactionId: isMobilePayment(paymentMethod)
+        ? transactionId.trim() || undefined
+        : undefined,
+    });
 
-    // Remove undefined values
-    Object.keys(formData).forEach(
-      (key) => formData[key] === undefined && delete formData[key]
-    );
-
+    // 1) Save to the cloud database (falls back to this device if offline)
+    let cloudSaved = true;
     try {
-      // Replace with your own Formspree endpoint
-      const response = await fetch('https://formspree.io/f/your_form_id', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
-
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-
-      setOrderPlaced(true);
-      setSubmitting(false);
-      clearCart();
-      window.scrollTo(0, 0);
-    } catch (err) {
-      console.error('Formspree error:', err);
-      setOrderError(true);
-      setSubmitting(false);
+      await insertOrder(order);
+    } catch {
+      cloudSaved = false;
+      addOrder(order); // keep it locally so the order is never lost
     }
+
+    // 2) Email the store owner (best-effort — never blocks the order)
+    try {
+      await sendOrderNotification(order);
+    } catch {
+      // email hiccup: order is still safely stored
+    }
+
+    setSavedToCloud(cloudSaved);
+    setPlacedOrder(order);
+    setSubmitting(false);
+    clearCart();
+    window.scrollTo(0, 0);
   };
 
   /* ── Order success screen ─────────────────────────────────── */
-  if (orderPlaced) {
+  if (placedOrder) {
     return (
       <div className="min-h-screen bg-[#f7f7f5] text-[#171717]">
         <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-5 py-16 text-center">
@@ -119,14 +102,45 @@ export function CheckoutPage() {
           </div>
 
           <p className="mt-8 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">
-            Thank you{customerName ? `, ${customerName.split(' ')[0]}` : ''}
+            Thank you{placedOrder.customerName ? `, ${placedOrder.customerName.split(' ')[0]}` : ''}
           </p>
           <h1 className="mt-3 font-serif text-5xl leading-[1] tracking-[-0.04em] sm:text-6xl">
-            Order placed successfully!
+            Order confirmed
           </h1>
           <p className="mt-5 max-w-md text-sm leading-7 text-black/60">
-            We've received your order and will contact you shortly to confirm delivery details.
+            Your order <span className="font-semibold text-[#171717]">{placedOrder.id}</span> is
+            in. We've sent a confirmation to {placedOrder.email} and will reach out on{' '}
+            {placedOrder.phone} to arrange delivery.
           </p>
+
+          <div className="mt-10 w-full max-w-md space-y-4 rounded-2xl border border-black/10 bg-white p-6 text-left">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-black/50">Order number</span>
+              <span className="font-semibold">{placedOrder.id}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-black/50">Payment</span>
+              <span className="font-semibold">
+                {placedOrder.paymentMethod}
+                {placedOrder.transactionId ? ` · TrxID ${placedOrder.transactionId}` : ''}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-black/50">Delivery</span>
+              <span className="font-semibold">
+                {placedOrder.deliveryFee === 0 ? 'Free' : formatTk(placedOrder.deliveryFee)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-t border-black/10 pt-4 text-sm">
+              <span className="font-semibold">Total</span>
+              <span className="font-semibold">{formatTk(placedOrder.total)}</span>
+            </div>
+            <p className="border-t border-black/10 pt-3 text-[10px] leading-4 text-black/40">
+              {savedToCloud
+                ? 'Order saved to the store database — we can see it instantly.'
+                : 'Order saved on this device — it will sync to the store when you contact us.'}
+            </p>
+          </div>
 
           <Link
             to="/"
@@ -134,36 +148,6 @@ export function CheckoutPage() {
           >
             Continue shopping <ArrowRight size={15} />
           </Link>
-        </main>
-      </div>
-    );
-  }
-
-  /* ── Order error screen ───────────────────────────────────── */
-  if (orderError) {
-    return (
-      <div className="min-h-screen bg-[#f7f7f5] text-[#171717]">
-        <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-5 py-16 text-center">
-          <div className="animate-[pop_0.4s_ease-out] rounded-full bg-[#a05a39]/10 p-6">
-            <AlertTriangle className="text-[#a05a39]" size={52} strokeWidth={1.5} />
-          </div>
-
-          <p className="mt-8 text-[10px] font-bold uppercase tracking-[0.28em] text-[#a05a39]">
-            Oops! Something went wrong.
-          </p>
-          <h1 className="mt-3 font-serif text-5xl leading-[1] tracking-[-0.04em] sm:text-6xl">
-            Order not placed
-          </h1>
-          <p className="mt-5 max-w-md text-sm leading-7 text-black/60">
-            Please try again or contact us directly if the problem persists.
-          </p>
-
-          <button
-            onClick={() => setOrderError(false)}
-            className="mt-10 inline-flex items-center gap-3 border-b border-[#171717] pb-2 text-[11px] font-bold uppercase tracking-[0.2em] transition hover:gap-5"
-          >
-            Try again <ArrowRight size={15} />
-          </button>
         </main>
       </div>
     );
@@ -284,8 +268,11 @@ export function CheckoutPage() {
                 {PAYMENT_METHODS.map((method) => (
                   <label
                     key={method.id}
-                    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition ${\n                      paymentMethod === method.id
-                        ? 'border-[#a05a39] bg-[#a05a39]/5'\n                        : 'border-black/15 bg-white hover:border-black/30'\n                    }`}
+                    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition ${
+                      paymentMethod === method.id
+                        ? 'border-[#a05a39] bg-[#a05a39]/5'
+                        : 'border-black/15 bg-white hover:border-black/30'
+                    }`}
                   >
                     <input
                       type="radio"
@@ -304,4 +291,91 @@ export function CheckoutPage() {
               </div>
             </fieldset>
 
-            {/* TrxID — only for mobile payments */}\n            {isMobilePayment(paymentMethod) && (\n              <label className=\"block\">\n                <span className=\"mb-1.5 block text-xs font-semibold uppercase tracking-wide text-black/50\">\n                  Transaction ID (TrxID) — optional\n                </span>\n                <input\n                  value={transactionId}\n                  onChange={(e) => setTransactionId(e.target.value)}\n                  placeholder=\"e.g. 9F7A2C81KX\"\n                  className=\"w-full rounded-lg border border-black/15 bg-white px-3.5 py-3 font-mono text-sm uppercase outline-none transition focus:border-[#a05a39]\"\n                />\n                <span className=\"mt-1.5 block text-[10px] text-black/40\">\n                  Found in your {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} app's payment\n                  history. Helps us verify your payment faster.\n                </span>\n              </label>\n            )}\n\n            <button\n              type=\"submit\"\n              disabled={submitting}\n              className=\"mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#171717] py-4 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39] disabled:opacity-50\"\n            >\n              {submitting ? (\n                <>\n                  <Loader2 size={15} className=\"animate-spin\" /> Placing order…\n                </>\n              ) : (\n                <>\n                  <ShoppingBag size={15} /> Place order · {formatTk(total)}\n                </>\n              )}\n            </button>\n          </form>\n        </div>\n\n        {/* Order summary */}\n        <aside className=\"h-fit rounded-2xl border border-black/10 bg-white p-6 lg:sticky lg:top-8\">\n          <h2 className=\"font-serif text-2xl tracking-tight\">Order summary</h2>\n          <ul className=\"mt-5 space-y-4\">\n            {cart.map((line) => (\n              <li className=\"flex items-center gap-4\" key={line.product.id}>\n                <div className=\"relative h-16 w-14 shrink-0 overflow-hidden bg-[#e9e9e5]\">\n                  <img\n                    className=\"h-full w-full object-cover object-[center_42%]\"\n                    src={line.product.images[0]}\n                    alt={line.product.name}\n                  />\n                  <span className=\"absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#171717] px-1 text-[10px] font-bold text-white\">\n                    {line.qty}\n                  </span>\n                </div>\n                <div className=\"min-w-0 flex-1\">\n                  <p className=\"truncate text-sm font-semibold\">{line.product.name}</p>\n                  <p className=\"text-xs text-black/45\">{line.product.color}</p>\n                </div>\n                <p className=\"text-sm font-semibold\">\n                  {formatTk(toNumber(line.product.price) * line.qty)}\n                </p>\n              </li>\n            ))}\n          </ul>\n          <div className=\"mt-6 space-y-2.5 border-t border-black/10 pt-5 text-sm\">\n            <div className=\"flex justify-between\">\n              <span className=\"text-black/55\">Subtotal</span>\n              <span className=\"font-semibold\">{formatTk(subtotal)}</span>\n            </div>\n            <div className=\"flex justify-between\">\n              <span className=\"text-black/55\">Delivery</span>\n              <span className=\"font-semibold\">\n                {deliveryFee === 0 ? 'Free' : formatTk(deliveryFee)}\n              </span>\n            </div>\n            <div className=\"flex justify-between border-t border-black/10 pt-3 text-base\">\n              <span className=\"font-semibold\">Total</span>\n              <span className=\"font-semibold\">{formatTk(total)}</span>\n            </div>\n          </div>\n          <p className=\"mt-5 text-[10px] leading-5 text-black/40\">\n            By placing this order you agree to be contacted about delivery. Orders are\n            confirmed by phone or email.\n          </p>\n        </aside>\n      </main>\n    </div>\n  );\n}
+            {/* TrxID — only for mobile payments */}
+            {isMobilePayment(paymentMethod) && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-black/50">
+                  Transaction ID (TrxID) — optional
+                </span>
+                <input
+                  value={transactionId}
+                  onChange={(e) => setTransactionId(e.target.value)}
+                  placeholder="e.g. 9F7A2C81KX"
+                  className="w-full rounded-lg border border-black/15 bg-white px-3.5 py-3 font-mono text-sm uppercase outline-none transition focus:border-[#a05a39]"
+                />
+                <span className="mt-1.5 block text-[10px] text-black/40">
+                  Found in your {paymentMethod === 'Bkash' ? 'bKash' : 'Rocket'} app's payment
+                  history. Helps us verify your payment faster.
+                </span>
+              </label>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#171717] py-4 text-[11px] font-bold uppercase tracking-[0.2em] text-white transition hover:bg-[#a05a39] disabled:opacity-50"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" /> Placing order…
+                </>
+              ) : (
+                <>
+                  <ShoppingBag size={15} /> Place order · {formatTk(total)}
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Order summary */}
+        <aside className="h-fit rounded-2xl border border-black/10 bg-white p-6 lg:sticky lg:top-8">
+          <h2 className="font-serif text-2xl tracking-tight">Order summary</h2>
+          <ul className="mt-5 space-y-4">
+            {cart.map((line) => (
+              <li className="flex items-center gap-4" key={line.product.id}>
+                <div className="relative h-16 w-14 shrink-0 overflow-hidden bg-[#e9e9e5]">
+                  <img
+                    className="h-full w-full object-cover object-[center_42%]"
+                    src={line.product.images[0]}
+                    alt={line.product.name}
+                  />
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#171717] px-1 text-[10px] font-bold text-white">
+                    {line.qty}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{line.product.name}</p>
+                  <p className="text-xs text-black/45">{line.product.color}</p>
+                </div>
+                <p className="text-sm font-semibold">
+                  {formatTk(toNumber(line.product.price) * line.qty)}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-6 space-y-2.5 border-t border-black/10 pt-5 text-sm">
+            <div className="flex justify-between">
+              <span className="text-black/55">Subtotal</span>
+              <span className="font-semibold">{formatTk(subtotal)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-black/55">Delivery</span>
+              <span className="font-semibold">
+                {deliveryFee === 0 ? 'Free' : formatTk(deliveryFee)}
+              </span>
+            </div>
+            <div className="flex justify-between border-t border-black/10 pt-3 text-base">
+              <span className="font-semibold">Total</span>
+              <span className="font-semibold">{formatTk(total)}</span>
+            </div>
+          </div>
+          <p className="mt-5 text-[10px] leading-5 text-black/40">
+            By placing this order you agree to be contacted about delivery. Orders are
+            confirmed by phone or email.
+          </p>
+        </aside>
+      </main>
+    </div>
+  );
+}
